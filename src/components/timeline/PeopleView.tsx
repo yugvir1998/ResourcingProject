@@ -1,36 +1,40 @@
 'use client';
 
-import { useState } from 'react';
 import type { Venture, VenturePhase, Allocation, Employee } from '@/types';
 
-const PHASE_LABELS: Record<string, string> = {
-  explore: 'Explore',
-  validate: 'Validate',
-  define: 'Define',
-  build: 'Build',
-  spin_out: 'Spin out',
-};
+type AllocationItem = { venture: Venture; phase: VenturePhase; fte: number };
+
+// Rose-tinted palette for venture segments (capacity bars)
+const VENTURE_SEGMENT_COLORS = [
+  'bg-rose-300',
+  'bg-rose-400',
+  'bg-rose-500',
+  'bg-rose-600',
+  'bg-rose-700',
+  'bg-rose-800',
+];
+
+function dateToOffset(dateStr: string, startDate: Date, totalDays: number): number {
+  const startTime = startDate.getTime();
+  const dateTime = new Date(dateStr).getTime();
+  const totalMs = totalDays * 24 * 60 * 60 * 1000;
+  return Math.max(0, Math.min(100, ((dateTime - startTime) / totalMs) * 100));
+}
+
+function getWeekWidthPct(totalDays: number): number {
+  const weekDays = 7;
+  return (weekDays / totalDays) * 100;
+}
 
 interface PeopleViewProps {
   ventures: Venture[];
   phases: VenturePhase[];
   allocations: Allocation[];
   employees: Employee[];
-  visibleStartDate: Date;
-  visibleEndDate: Date;
-}
-
-function phaseOverlapsRange(
-  phaseStart: string,
-  phaseEnd: string,
-  rangeStart: Date,
-  rangeEnd: Date
-): boolean {
-  const pStart = new Date(phaseStart).getTime();
-  const pEnd = new Date(phaseEnd).getTime();
-  const rStart = rangeStart.getTime();
-  const rEnd = rangeEnd.getTime();
-  return pStart <= rEnd && pEnd >= rStart;
+  startDate: Date;
+  endDate: Date;
+  totalDays: number;
+  gridWidth: number;
 }
 
 export function PeopleView({
@@ -38,133 +42,127 @@ export function PeopleView({
   phases,
   allocations,
   employees,
-  visibleStartDate,
-  visibleEndDate,
+  startDate,
+  endDate,
+  totalDays,
+  gridWidth,
 }: PeopleViewProps) {
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-
   const phaseMap = new Map(phases.map((p) => [p.id, p]));
   const ventureMap = new Map(ventures.map((v) => [v.id, v]));
 
-  const employeeAllocations: Array<{
-    employee: Employee;
-    items: Array<{ venture: Venture; phase: VenturePhase; fte: number }>;
-    totalFte: number;
-  }> = [];
+  // Group allocations by employee and week_start
+  const byEmployeeAndWeek = new Map<number, Map<string, AllocationItem[]>>();
 
-  for (const emp of employees) {
-    const empAllocs = allocations.filter((a) => a.employee_id === emp.id);
-    const items: Array<{ venture: Venture; phase: VenturePhase; fte: number }> = [];
-    let totalFte = 0;
+  const startTime = startDate.getTime();
+  const endTime = endDate.getTime();
 
-    for (const a of empAllocs) {
-      const phase = a.phase_id ? phaseMap.get(a.phase_id) : null;
-      if (!phase) continue;
+  for (const a of allocations) {
+    const phase = a.phase_id ? phaseMap.get(a.phase_id) : null;
+    const venture = ventureMap.get(a.venture_id);
+    if (!phase || !venture) continue;
 
-      const venture = ventureMap.get(a.venture_id);
-      if (!venture) continue;
-
-      if (!phaseOverlapsRange(phase.start_date, phase.end_date, visibleStartDate, visibleEndDate)) {
-        continue;
-      }
-
-      items.push({
-        venture,
-        phase,
-        fte: a.fte_percentage,
-      });
-      totalFte += a.fte_percentage;
+    const weekStart = a.week_start;
+    const weekTime = new Date(weekStart).getTime();
+    if (weekTime < startTime || weekTime > endTime) continue;
+    if (!byEmployeeAndWeek.has(a.employee_id)) {
+      byEmployeeAndWeek.set(a.employee_id, new Map());
     }
-
-    if (items.length > 0) {
-      employeeAllocations.push({
-        employee: emp,
-        items,
-        totalFte: Math.min(100, totalFte),
-      });
+    const weekMap = byEmployeeAndWeek.get(a.employee_id)!;
+    if (!weekMap.has(weekStart)) {
+      weekMap.set(weekStart, []);
+    }
+    const existing = weekMap.get(weekStart)!.find((x) => x.venture.id === venture.id);
+    if (existing) {
+      existing.fte += a.fte_percentage;
+    } else {
+      weekMap.get(weekStart)!.push({ venture, phase, fte: a.fte_percentage });
     }
   }
 
-  const toggleExpanded = (id: number) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const formatDateRange = (start: Date, end: Date) => {
-    const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' };
-    return `${start.toLocaleDateString(undefined, opts)} – ${end.toLocaleDateString(undefined, opts)}`;
-  };
-
-  if (employeeAllocations.length === 0) {
+  // Employees with allocations in range
+  const employeeIds = new Set(byEmployeeAndWeek.keys());
+  const peopleRows = employees.filter((e) => employeeIds.has(e.id));
+  if (peopleRows.length === 0) {
     return (
-      <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
-        <h3 className="mb-2 text-sm font-semibold text-zinc-800">People view</h3>
-        <p className="text-sm text-zinc-500">
-          No allocations in the visible date range. Scroll the timeline or add people to phases.
-        </p>
+      <div className="flex min-w-max border-t border-zinc-200 pt-2">
+        <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50 px-3 py-4">
+          <p className="text-xs text-zinc-500">People</p>
+        </div>
+        <div className="flex shrink-0 items-center bg-zinc-50 px-4" style={{ width: gridWidth }}>
+          <p className="text-sm text-zinc-500">No people allocated yet. Add team members to phases to see capacity here.</p>
+        </div>
       </div>
     );
   }
 
+  const ventureColorIndex = new Map<number, number>();
+  let colorIdx = 0;
+  ventures.forEach((v) => {
+    if (!ventureColorIndex.has(v.id)) {
+      ventureColorIndex.set(v.id, colorIdx++ % VENTURE_SEGMENT_COLORS.length);
+    }
+  });
+
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
-      <div className="border-b border-zinc-200 px-4 py-3">
-        <h3 className="text-sm font-semibold text-zinc-800">People view</h3>
-        <p className="mt-0.5 text-xs text-zinc-500">
-          {formatDateRange(visibleStartDate, visibleEndDate)} — synced to timeline
-        </p>
-      </div>
-      <div className="divide-y divide-zinc-100">
-        {employeeAllocations.map(({ employee, items, totalFte }) => {
-          const isExpanded = expandedIds.has(employee.id);
-          return (
-            <div key={employee.id} className="px-4 py-2">
-              <button
-                type="button"
-                onClick={() => toggleExpanded(employee.id)}
-                className="flex w-full items-center justify-between text-left hover:bg-zinc-50"
-              >
-                <span className="font-medium text-zinc-800">{employee.name}</span>
-                <span className="text-xs text-zinc-500">
-                  {totalFte}% total
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className={`ml-1 inline transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </span>
-              </button>
-              {isExpanded && (
-                <ul className="mt-2 space-y-1 pl-2">
-                  {items.map((item, idx) => (
-                    <li
-                      key={`${item.venture.id}-${item.phase.id}-${idx}`}
-                      className="flex items-center gap-2 text-sm text-zinc-600"
-                    >
-                      <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
-                        {PHASE_LABELS[item.phase.phase] || item.phase.phase}
-                      </span>
-                      <span className="truncate">{item.venture.name}</span>
-                      <span className="shrink-0 font-medium text-zinc-800">{item.fte}%</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+    <div className="flex flex-col border-t border-zinc-200 pt-2">
+      {peopleRows.map((emp, idx) => {
+        const weekMap = byEmployeeAndWeek.get(emp.id) ?? new Map();
+        const weeks = Array.from(weekMap.entries());
+
+        return (
+          <div
+            key={emp.id}
+            className={`flex min-w-max ${idx > 0 ? 'border-t border-zinc-100' : ''}`}
+          >
+            <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50 px-3 py-2">
+              <span className="truncate text-sm font-medium text-zinc-800">{emp.name}</span>
             </div>
-          );
-        })}
-      </div>
+            <div
+              className="relative h-8 shrink-0"
+              style={{ width: gridWidth }}
+              data-timeline-grid
+            >
+              {weeks.map(([weekStart, items]) => {
+                const totalFte = items.reduce((s: number, x: AllocationItem) => s + x.fte, 0);
+                if (totalFte <= 0) return null;
+
+                const leftPct = dateToOffset(weekStart, startDate, totalDays);
+                const weekWidthPct = getWeekWidthPct(totalDays);
+
+                return (
+                  <div
+                    key={weekStart}
+                    className="absolute top-1 bottom-1 flex overflow-hidden rounded"
+                    style={{
+                      left: `${leftPct}%`,
+                      width: `${Math.min(weekWidthPct, 100 - leftPct)}%`,
+                      minWidth: 8,
+                    }}
+                    title={items
+                      .map((i: AllocationItem) => `${i.venture.name}: ${i.fte}%`)
+                      .join('\n')}
+                  >
+                    {items.map((item: AllocationItem) => {
+                      const pct = (item.fte / totalFte) * 100;
+                      const color =
+                        VENTURE_SEGMENT_COLORS[
+                          ventureColorIndex.get(item.venture.id) ?? 0
+                        ];
+                      return (
+                        <div
+                          key={`${item.venture.id}-${weekStart}`}
+                          className={`h-full shrink-0 ${color}`}
+                          style={{ width: `${pct}%`, minWidth: pct > 0 ? 2 : 0 }}
+                        />
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

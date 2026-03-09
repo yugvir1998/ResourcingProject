@@ -14,9 +14,11 @@ A battlefield command center for venture and resource allocation. Makes opportun
 ### 1. Supabase setup
 
 1. Create a project at [supabase.com](https://supabase.com)
-2. Run the migration (either way):
-   - **Option A – Script:** Add `SUPABASE_DB_URL` to `.env.local` (from Settings → Database → Connection string URI), then run `npm run db:supabase`
-   - **Option B – Manual:** In SQL Editor, paste `supabase/migrations/001_initial.sql` and click Run
+2. Run migrations (recommended: use the script so all migrations apply in order):
+   - Add `SUPABASE_DB_URL` to `.env.local` (from Settings → Database → Connection string URI)
+   - Run `npm run db:supabase` – applies all migrations in `supabase/migrations/`
+   - **Important:** Run `npm run db:supabase` after cloning or when new migration files are added
+   - *Alternative:* Run each SQL file manually in Supabase SQL Editor (in filename order)
 3. In **Settings → API**, copy:
    - **Project URL** → `NEXT_PUBLIC_SUPABASE_URL`
    - **service_role** key (under "Project API keys") → `SUPABASE_SERVICE_ROLE_KEY`
@@ -48,9 +50,10 @@ Data added in the dashboard is stored in Supabase. You can also add or edit data
 
 ## Database (Supabase / PostgreSQL)
 
-- **Schema** – Defined in `supabase/migrations/001_initial.sql`
+- **Schema** – Defined in `supabase/migrations/` (run `npm run db:supabase` to apply)
 - **Tables** – employees, ventures, venture_phases, hiring_milestones, allocations, support_assignments
-- **New migrations** – Add SQL files to `supabase/migrations/` and run them in the Supabase SQL Editor
+- **New migrations** – Add SQL files to `supabase/migrations/`, then run `npm run db:supabase`
+- **Note:** The `migrations/` folder (SQLite) is legacy; this project uses `supabase/migrations/` (PostgreSQL) for Supabase
 
 ## Project structure
 

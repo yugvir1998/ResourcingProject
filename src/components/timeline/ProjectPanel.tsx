@@ -91,21 +91,21 @@ function MilestoneEditRow({
   );
 }
 
-const PHASE_OPTIONS: Array<'explore' | 'validate' | 'define' | 'build' | 'spin_out'> = [
+const PHASE_OPTIONS: Array<'explore' | 'shape' | 'build' | 'spin_out' | 'support'> = [
   'explore',
-  'validate',
-  'define',
+  'shape',
   'build',
   'spin_out',
+  'support',
 ];
 const ROLE_OPTIONS: Array<'ceo' | 'founding_engineer' | 'other'> = ['ceo', 'founding_engineer', 'other'];
 
 const PHASE_LABELS: Record<string, string> = {
   explore: 'Explore',
-  validate: 'Validate',
-  define: 'Define',
+  shape: 'Shape',
   build: 'Build',
   spin_out: 'Spin out',
+  support: 'Support',
 };
 const ROLE_LABELS: Record<string, string> = {
   ceo: 'CEO',
@@ -135,6 +135,7 @@ interface ProjectPanelProps {
     allocations: Allocation[];
   }) => void;
   onRemove: () => void;
+  onDelete?: () => void | Promise<void>;
 }
 
 export function ProjectPanel({
@@ -146,6 +147,7 @@ export function ProjectPanel({
   onClose,
   onSave,
   onRemove,
+  onDelete,
 }: ProjectPanelProps) {
   const [name, setName] = useState(venture.name);
   const [notes, setNotes] = useState(venture.notes || '');
@@ -272,9 +274,9 @@ export function ProjectPanel({
   };
 
   return (
-    <div className="flex h-full flex-col border-l border-zinc-200 bg-white">
+    <div className="flex h-full flex-col bg-white">
       <div className="flex items-center justify-between border-b border-zinc-200 p-4">
-        <h3 className="text-lg font-semibold text-zinc-900">Edit project</h3>
+        <h3 id="edit-project-title" className="text-lg font-semibold text-zinc-900">Edit project</h3>
         <button
           onClick={onClose}
           className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
@@ -424,7 +426,7 @@ export function ProjectPanel({
           </div>
         </div>
       </div>
-      <div className="flex gap-2 border-t border-zinc-200 p-4">
+      <div className="flex flex-wrap gap-2 border-t border-zinc-200 p-4">
         <button
           onClick={handleSave}
           disabled={saving || !name.trim()}
@@ -434,10 +436,21 @@ export function ProjectPanel({
         </button>
         <button
           onClick={onRemove}
-          className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+          className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
         >
           Remove from timeline
         </button>
+        {onDelete && (
+          <button
+            onClick={async () => {
+              if (!confirm(`Delete "${venture.name}" permanently? This cannot be undone.`)) return;
+              await onDelete();
+            }}
+            className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+          >
+            Delete project
+          </button>
+        )}
       </div>
     </div>
   );

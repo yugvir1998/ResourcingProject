@@ -14,7 +14,7 @@ interface TimeAxisProps {
   columnWidth: number;
 }
 
-function getMonthsBetween(start: Date, end: Date): Date[] {
+export function getMonthsBetween(start: Date, end: Date): Date[] {
   const months: Date[] = [];
   const d = new Date(start.getFullYear(), start.getMonth(), 1);
   const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
@@ -25,7 +25,7 @@ function getMonthsBetween(start: Date, end: Date): Date[] {
   return months;
 }
 
-function getWeeksInMonth(monthStart: Date): Date[] {
+export function getWeeksInMonth(monthStart: Date): Date[] {
   const weeks: Date[] = [];
   const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
   const d = new Date(monthStart);
@@ -40,7 +40,7 @@ function getWeeksInMonth(monthStart: Date): Date[] {
   return weeks;
 }
 
-function getWeeksBetween(start: Date, end: Date): Date[] {
+export function getWeeksBetween(start: Date, end: Date): Date[] {
   const weeks: Date[] = [];
   const d = new Date(start);
   const day = d.getDay();
@@ -55,7 +55,7 @@ function getWeeksBetween(start: Date, end: Date): Date[] {
   return weeks;
 }
 
-function getDisplayLevel(columnWidth: number): AxisDisplayLevel {
+export function getDisplayLevel(columnWidth: number): AxisDisplayLevel {
   if (columnWidth < COLUMN_WIDTH_QUARTERS_THRESHOLD) return 'quarters';
   if (columnWidth >= COLUMN_WIDTH_WEEKS_THRESHOLD) return 'monthsWithWeeks';
   return 'months';
@@ -179,15 +179,18 @@ export function getDateRange(phases: { start_date: string; end_date: string }[],
     dates.push(new Date(p.end_date));
   });
   milestones.forEach((m) => dates.push(new Date(m.target_date)));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   if (dates.length === 0) {
-    const today = new Date();
     const end = new Date(today);
     end.setFullYear(end.getFullYear() + 1);
     return { start: today, end };
   }
-  const start = new Date(Math.min(...dates.map((d) => d.getTime())));
-  const end = new Date(Math.max(...dates.map((d) => d.getTime())));
+  let start = new Date(Math.min(...dates.map((d) => d.getTime())));
+  let end = new Date(Math.max(...dates.map((d) => d.getTime())));
   start.setMonth(start.getMonth() - 1);
   end.setFullYear(end.getFullYear() + 1);
+  if (today.getTime() < start.getTime()) start = today;
+  if (today.getTime() > end.getTime()) end = today;
   return { start, end };
 }

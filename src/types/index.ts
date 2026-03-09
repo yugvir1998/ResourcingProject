@@ -13,7 +13,7 @@ export type ExplorationPhase =
   | 'product_definition'
   | 'awaiting_build';
 export type Spectrum = 'venture_leader' | 'engineer' | 'studio_function' | 'other';
-export type PhaseType = 'explore' | 'validate' | 'define' | 'build' | 'spin_out' | 'pause';
+export type PhaseType = 'explore' | 'shape' | 'build' | 'spin_out' | 'support' | 'pause';
 export type RoleType = 'ceo' | 'founding_engineer' | 'other';
 
 export interface Venture {
@@ -27,6 +27,7 @@ export interface Venture {
   notes: string | null;
   next_steps: string | null;
   primary_contact_id?: number | null;
+  notion_link?: string | null;
   timeline_visible?: boolean | null;
   hidden_from_venture_tracker?: boolean | null;
   created_at: string;
@@ -36,8 +37,7 @@ export interface Venture {
 export type AllocationKey =
   | 'access'
   | 'explore'
-  | 'validate'
-  | 'define'
+  | 'shape'
   | 'build'
   | 'spin_out'
   | 'support'

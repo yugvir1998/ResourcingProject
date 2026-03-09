@@ -29,10 +29,10 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ToastProvider>
-        <div className="min-h-screen bg-zinc-100">
-          <header className="border-b border-zinc-200 bg-white shadow-sm">
+        <div className="min-h-screen bg-zinc-50">
+          <header className="border-b border-zinc-200 bg-white/95 shadow-sm backdrop-blur-sm">
             <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
-              <Link href="/" className="text-lg font-semibold text-zinc-900">
+              <Link href="/" className="text-lg font-bold text-zinc-900">
                 Resourcing Dashboard
               </Link>
               <Nav />

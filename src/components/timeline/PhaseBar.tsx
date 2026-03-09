@@ -5,10 +5,10 @@ import type { VenturePhase } from '@/types';
 
 const PHASE_COLORS: Record<string, string> = {
   explore: 'bg-teal-500/90',
-  validate: 'bg-violet-500/90',
-  define: 'bg-amber-500/90',
+  shape: 'bg-violet-500/90',
   build: 'bg-rose-500/90',
   spin_out: 'bg-blue-500/90',
+  support: 'bg-cyan-500/90',
   pause: 'border-2 border-dashed border-zinc-300 bg-zinc-100',
 };
 
@@ -21,6 +21,8 @@ interface PhaseBarProps {
   onUpdate: (id: number, updates: { start_date: string; end_date: string }) => void;
   onExpandClick?: () => void;
   onPauseResume?: (phaseId: number) => void;
+  /** People assigned to this phase (for showing initials on the bar) */
+  assignedPeople?: { id: number; name: string }[];
 }
 
 function dateToOffset(date: Date, startDate: Date, totalDays: number): number {
@@ -35,6 +37,12 @@ function offsetToDate(offset: number, startDate: Date, totalDays: number): Date 
   return new Date(startDate.getTime() + (offset / 100) * totalMs);
 }
 
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0]?.slice(0, 2).toUpperCase() || '?';
+}
+
 export function PhaseBar({
   phase,
   startDate,
@@ -44,6 +52,7 @@ export function PhaseBar({
   onUpdate,
   onExpandClick,
   onPauseResume,
+  assignedPeople = [],
 }: PhaseBarProps) {
   const phaseStart = new Date(phase.start_date);
   const phaseEnd = new Date(phase.end_date);
@@ -115,15 +124,17 @@ export function PhaseBar({
   const phaseLabel =
     phase.phase === 'explore'
       ? 'Explore'
-      : phase.phase === 'validate'
-        ? 'Validate'
-        : phase.phase === 'define'
-          ? 'Define'
-          : phase.phase === 'build'
-            ? 'Build'
-            : phase.phase === 'pause'
-              ? 'Paused'
-              : 'Spin out';
+      : phase.phase === 'shape'
+        ? 'Shape'
+        : phase.phase === 'build'
+          ? 'Build'
+          : phase.phase === 'spin_out'
+            ? 'Spin out'
+            : phase.phase === 'support'
+              ? 'Support'
+              : phase.phase === 'pause'
+                ? 'Paused'
+                : phase.phase;
 
   const isPause = phase.phase === 'pause';
 
@@ -147,8 +158,29 @@ export function PhaseBar({
         className="absolute -right-2 top-0 h-full w-4 cursor-ew-resize hover:bg-white/30"
         onMouseDown={(e) => handleMouseDown(e, 'right')}
       />
-      <span className={`absolute inset-0 flex items-center justify-center truncate px-2 text-xs font-medium ${isPause ? 'text-zinc-600' : 'text-white'}`}>
+      <span className={`absolute inset-0 flex items-center justify-center gap-1.5 truncate px-2 text-xs font-medium ${isPause ? 'text-zinc-600' : 'text-white'}`}>
         {phaseLabel}
+        {assignedPeople.length > 0 && (
+          <span className="flex shrink-0 items-center gap-1">
+            {assignedPeople.slice(0, 3).map((p) => (
+              <span
+                key={p.id}
+                className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-medium ${isPause ? 'bg-zinc-300/80 text-zinc-700' : 'bg-white/30 text-white'}`}
+                title={p.name}
+              >
+                {getInitials(p.name)}
+              </span>
+            ))}
+            {assignedPeople.length > 3 && (
+              <span
+                className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-medium ${isPause ? 'bg-zinc-300/80 text-zinc-700' : 'bg-white/30 text-white'}`}
+                title={assignedPeople.slice(3).map((e) => e.name).join(', ')}
+              >
+                +{assignedPeople.length - 3}
+              </span>
+            )}
+          </span>
+        )}
       </span>
     </div>
   );

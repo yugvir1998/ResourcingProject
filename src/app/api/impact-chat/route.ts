@@ -4,10 +4,10 @@ import { getSupabase } from '@/lib/supabase';
 
 const PHASE_LABELS: Record<string, string> = {
   explore: 'Explore',
-  validate: 'Validate',
-  define: 'Define',
+  shape: 'Shape',
   build: 'Build',
   spin_out: 'Spin out',
+  support: 'Support',
 };
 
 async function buildPortfolioContext(): Promise<string> {

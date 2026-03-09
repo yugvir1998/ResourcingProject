@@ -9,7 +9,8 @@ async function applyTimelineTemplate(ventureId: number): Promise<void> {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || 'Failed to apply template');
+    const msg = data.error || 'Failed to apply template';
+    throw new Error(data.hint ? `${msg}. ${data.hint}` : msg);
   }
   // Add placeholder milestone
   const today = new Date();
@@ -148,31 +149,37 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm"
       onClick={(e) => {
         if (e.target === e.currentTarget) handleClose();
       }}
     >
       <div
-        className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl"
+        className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {mode === 'choose' && (
           <>
             <h3 className="mb-4 text-lg font-semibold text-zinc-900">Add project</h3>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => setMode('new')}
-                className="rounded-lg border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
-              >
-                Add a new project
-              </button>
-              <button
-                onClick={() => setMode('select')}
-                className="rounded-lg border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
-              >
-                Select from Venture Tracker
-              </button>
+            <div className="space-y-4">
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">Add new</p>
+                <button
+                  onClick={() => setMode('new')}
+                  className="w-full rounded-lg border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+                >
+                  Add a new project
+                </button>
+              </div>
+              <div className="border-t border-zinc-200 pt-4">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">Select from Venture Tracker</p>
+                <button
+                  onClick={() => setMode('select')}
+                  className="w-full rounded-lg border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+                >
+                  Select from Venture Tracker
+                </button>
+              </div>
             </div>
             <button
               onClick={handleClose}
@@ -216,7 +223,7 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
               </p>
             )}
             <p className="mt-2 text-xs text-zinc-500">
-              Template: Explore 2mo → Validate 1mo → Define 1mo → Build 2mo → Spin out 1mo + placeholder milestone
+              Template: Explore 2mo → Shape 2mo → Build 2mo → Spin out 2mo → Support 6mo + placeholder milestone
             </p>
             <div className="mt-4 flex gap-2">
               <button
@@ -248,9 +255,15 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
             {loading ? (
               <div className="py-8 text-center text-sm text-zinc-500">Loading…</div>
             ) : ventures.length === 0 ? (
-              <p className="py-4 text-sm text-zinc-500">
-                No exploration projects available. All have been added to the timeline, or create a new one.
-              </p>
+              <div className="flex flex-col items-center py-8 text-center">
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-500">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-zinc-700">No exploration projects available</p>
+                <p className="mt-1 text-sm text-zinc-500">All have been added to the timeline, or create a new one above.</p>
+              </div>
             ) : (
               <div className="max-h-64 space-y-1 overflow-y-auto">
                 {ventures.map((v) => (

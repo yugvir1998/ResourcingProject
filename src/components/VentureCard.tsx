@@ -32,6 +32,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
   const [editNotes, setEditNotes] = useState(venture.notes || '');
   const [editNextSteps, setEditNextSteps] = useState(venture.next_steps || '');
   const [editPrimaryContactId, setEditPrimaryContactId] = useState<number | null>(venture.primary_contact_id ?? null);
+  const [editNotionLink, setEditNotionLink] = useState(venture.notion_link || '');
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `card-${venture.id}`,
@@ -49,6 +50,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
       notes: editNotes.trim() || null,
       next_steps: editNextSteps.trim() || null,
       primary_contact_id: editPrimaryContactId,
+      notion_link: editNotionLink.trim() || null,
     });
     if (success !== false) setEditing(false);
   };
@@ -80,7 +82,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
       <div
         ref={setNodeRef}
         style={style}
-        className={`group cursor-grab rounded-xl border border-zinc-200 border-l-4 bg-white shadow-sm transition-all active:cursor-grabbing hover:shadow-md ${
+        className={`group cursor-grab rounded-xl border border-zinc-200 border-l-4 bg-white shadow-sm ring-1 ring-zinc-900/5 transition-all active:cursor-grabbing hover:shadow-md ${
           venture.status === 'active' ? CARD_ACCENT.active : CARD_ACCENT.backlog
         } ${isDragging ? 'opacity-90 shadow-lg ring-2 ring-amber-400/50' : ''}`}
       >
@@ -96,6 +98,22 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
                   >
                     {getInitials(primaryContact.name)}
                   </span>
+                )}
+                {venture.notion_link && (
+                  <a
+                    href={venture.notion_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-400 hover:text-zinc-600"
+                    title="Open Notion reading materials"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      <polyline points="15 3 21 3 21 9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
+                  </a>
                 )}
               </div>
               {venture.status === 'active' &&
@@ -136,6 +154,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
                   setEditNotes(venture.notes || '');
                   setEditNextSteps(venture.next_steps || '');
                   setEditPrimaryContactId(venture.primary_contact_id ?? null);
+                  setEditNotionLink(venture.notion_link || '');
                   setEditing(true);
                 }}
                 className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
@@ -167,9 +186,9 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
       </div>
 
       {editing && onUpdate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditing(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm" onClick={() => setEditing(false)}>
           <div
-            className="w-full max-w-md rounded-xl border border-zinc-200 border-l-4 border-l-amber-400/60 bg-white p-5 shadow-xl"
+            className="w-full max-w-md rounded-xl border border-zinc-200 border-l-4 border-l-amber-400/60 bg-white p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="mb-4 text-lg font-semibold text-zinc-900">Edit venture</h3>
@@ -206,7 +225,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
               </div>
               {employees.length > 0 && (
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-zinc-700">Point of contact</label>
+                  <label className="mb-1 block text-sm font-medium text-zinc-700">Gitwit POC</label>
                   <select
                     value={editPrimaryContactId ?? ''}
                     onChange={(e) => setEditPrimaryContactId(e.target.value ? parseInt(e.target.value, 10) : null)}
@@ -221,6 +240,17 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
                   </select>
                 </div>
               )}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Notion link</label>
+                <input
+                  type="text"
+                  value={editNotionLink}
+                  onChange={(e) => setEditNotionLink(e.target.value)}
+                  placeholder="https://notion.so/..."
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                />
+                <p className="mt-0.5 text-xs text-zinc-500">Link to reading materials and docs</p>
+              </div>
             </div>
             <div className="mt-5 flex gap-2">
               <button

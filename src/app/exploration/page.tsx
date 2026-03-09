@@ -1,5 +1,5 @@
-import { ExplorationPageClient } from "@/components/ExplorationPageClient";
+import { redirect } from 'next/navigation';
 
 export default function ExplorationPage() {
-  return <ExplorationPageClient />;
+  redirect('/');
 }

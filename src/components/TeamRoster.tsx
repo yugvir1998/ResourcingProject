@@ -19,8 +19,7 @@ const AVATAR_COLORS = [
 const ALLOCATION_COLORS: Record<string, string> = {
   access: 'border-emerald-400 bg-emerald-50',
   explore: 'border-teal-400 bg-teal-50',
-  validate: 'border-violet-400 bg-violet-50',
-  define: 'border-amber-400 bg-amber-50',
+  shape: 'border-violet-400 bg-violet-50',
   build: 'border-rose-400 bg-rose-50',
   spin_out: 'border-blue-400 bg-blue-50',
   support: 'border-cyan-400 bg-cyan-50',

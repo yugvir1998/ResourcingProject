@@ -16,7 +16,6 @@ export function ExplorationPageClient() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-zinc-900">Venture Tracker</h1>
-          <p className="mt-0.5 text-sm text-zinc-500">Backlog and active ventures · Drag to reorder</p>
         </div>
         <AddVentureForm onAdded={onAdded} />
       </div>

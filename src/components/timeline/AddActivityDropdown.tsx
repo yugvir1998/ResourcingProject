@@ -5,8 +5,10 @@ import type { PhaseType } from '@/types';
 
 const ACTIVITY_TEMPLATES: Record<PhaseType, string[]> = {
   explore: ['Initial Discovery', 'Solution Ideation', 'Design Partner Feedback'],
-  validate: ['Concept Pitch Deck', 'Message-Market Fit Testing', 'Clickable Demo / Prototype'],
-  define: [
+  shape: [
+    'Concept Pitch Deck',
+    'Message-Market Fit Testing',
+    'Clickable Demo / Prototype',
     'Functional Prototypes',
     'Pilot Testing',
     'Technical Discovery',
@@ -20,15 +22,16 @@ const ACTIVITY_TEMPLATES: Record<PhaseType, string[]> = {
     'Fundraising for Seed Round',
   ],
   spin_out: [],
+  support: [],
   pause: [],
 };
 
 const PHASE_LABELS: Record<PhaseType, string> = {
   explore: 'Explore',
-  validate: 'Validate',
-  define: 'Define',
+  shape: 'Shape',
   build: 'Build',
   spin_out: 'Spin out',
+  support: 'Support',
   pause: 'Paused',
 };
 

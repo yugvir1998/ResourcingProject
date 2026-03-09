@@ -3,8 +3,7 @@ import type { AllocationKey } from '@/types';
 export const VENTURE_CREATION: { key: AllocationKey; label: string }[] = [
   { key: 'access', label: 'Access' },
   { key: 'explore', label: 'Explore' },
-  { key: 'validate', label: 'Validate' },
-  { key: 'define', label: 'Define' },
+  { key: 'shape', label: 'Shape' },
   { key: 'build', label: 'Build' },
   { key: 'spin_out', label: 'Spin-Out' },
   { key: 'support', label: 'Support' },

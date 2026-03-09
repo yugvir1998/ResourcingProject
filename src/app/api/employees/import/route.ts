@@ -7,7 +7,7 @@ const SKIP_NAMES = new Set(['Funnel', 'Timeline (months)', 'Total', 'Hours per m
 const COL_MAP: Record<number, string> = {
   1: 'access',
   2: 'explore',
-  3: 'validate',
+  3: 'shape',
   4: 'build',
   5: 'spin_out',
   6: 'support',

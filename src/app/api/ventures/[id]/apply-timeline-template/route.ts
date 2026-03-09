@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/supabase';
 
-const PHASES = ['explore', 'validate', 'define', 'build', 'spin_out'] as const;
-// Explore 2mo, Validate 1mo, Define 1mo, Build 2mo, Spin out 1mo
-const PHASE_DAYS = [60, 30, 30, 60, 30];
+const PHASES = ['explore', 'shape', 'build', 'spin_out', 'support'] as const;
+// Explore 2mo, Shape 2mo, Build 2mo, Spin out 2mo, Support 6mo
+const PHASE_DAYS = [60, 60, 60, 60, 180];
 
 export async function POST(
   _request: Request,
@@ -17,17 +17,35 @@ export async function POST(
 
   const supabase = getSupabase();
 
-  // Check if phases already exist
-  const { data: existing } = await supabase
+  const REQUIRED_PHASES = ['explore', 'shape', 'build', 'spin_out', 'support'] as const;
+
+  // Check if phases already exist and are complete
+  const { data: existingPhases } = await supabase
     .from('venture_phases')
-    .select('id')
+    .select('id, phase')
     .eq('venture_id', ventureId);
-  if (existing && existing.length > 0) {
-    return NextResponse.json({ message: 'Phases already exist', phases: existing });
+  const phasesList = existingPhases || [];
+  const hasAllPhases = REQUIRED_PHASES.every((p) =>
+    phasesList.some((ep: { phase: string }) => ep.phase === p)
+  );
+
+  if (hasAllPhases && phasesList.length >= 5) {
+    const { data: fullPhases } = await supabase
+      .from('venture_phases')
+      .select('*')
+      .eq('venture_id', ventureId)
+      .order('sort_order', { ascending: true });
+    return NextResponse.json({ phases: fullPhases || [], message: 'Phases already complete' });
+  }
+
+  // Delete incomplete or partial phases before re-inserting
+  if (phasesList.length > 0) {
+    await supabase.from('venture_phases').delete().eq('venture_id', ventureId);
   }
 
   const today = new Date();
   let offset = 0;
+  const rows: { venture_id: number; phase: string; start_date: string; end_date: string; sort_order: number }[] = [];
 
   for (let i = 0; i < PHASES.length; i++) {
     const days = PHASE_DAYS[i] ?? 30;
@@ -36,18 +54,24 @@ export async function POST(
     const end = new Date(start);
     end.setDate(end.getDate() + days);
     offset += days;
-
-    const { error } = await supabase.from('venture_phases').insert({
+    rows.push({
       venture_id: ventureId,
       phase: PHASES[i],
       start_date: start.toISOString().slice(0, 10),
       end_date: end.toISOString().slice(0, 10),
       sort_order: i,
     });
-    if (error) {
-      console.error(error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+  }
+
+  const { error } = await supabase.from('venture_phases').insert(rows);
+  if (error) {
+    console.error(error);
+    const hint =
+      'If phases like "shape" or "support" are rejected, ensure migrations 012 and 013 are applied (npm run db:supabase).';
+    return NextResponse.json(
+      { error: error.message, hint },
+      { status: 500 }
+    );
   }
 
   const { data: phases } = await supabase

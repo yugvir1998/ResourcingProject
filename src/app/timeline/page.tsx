@@ -1,9 +1,5 @@
-import { TimelineView } from "@/components/TimelineView";
+import { redirect } from 'next/navigation';
 
 export default function TimelinePage() {
-  return (
-    <div>
-      <TimelineView />
-    </div>
-  );
+  redirect('/');
 }

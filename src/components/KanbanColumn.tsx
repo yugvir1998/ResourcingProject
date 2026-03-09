@@ -15,8 +15,8 @@ interface KanbanColumnProps {
 export function KanbanColumn({ id, title, ventures, variant = 'backlog', renderCard }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
-  const baseStyles = 'min-w-[260px] rounded-xl border-2 p-3 transition-all duration-200';
-  const backlogStyles = variant === 'backlog' ? 'border-slate-200/80 bg-slate-50/50' : 'border-amber-200/80 bg-amber-50/30';
+  const baseStyles = 'min-w-[260px] rounded-xl border-2 p-3 transition-all duration-200 ring-1 ring-zinc-900/5';
+  const backlogStyles = variant === 'backlog' ? 'border-slate-200 bg-slate-50/50' : 'border-amber-200 bg-amber-50/30';
   const isOverStyles = isOver ? 'border-amber-400/60 bg-amber-50/60 shadow-sm' : '';
 
   return (

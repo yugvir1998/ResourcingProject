@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { VenturePhase, Allocation } from '@/types';
 
 interface PhasePeopleCardsProps {
@@ -118,9 +119,19 @@ function AddPersonDropdown({
   onAdded?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [dropdownRect, setDropdownRect] = useState<DOMRect | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open && buttonRef.current) {
+      setDropdownRect(buttonRef.current.getBoundingClientRect());
+    } else {
+      setDropdownRect(null);
+    }
+  }, [open]);
 
   const handleAdd = async (employeeId: number) => {
     setError(null);
@@ -161,25 +172,25 @@ function AddPersonDropdown({
     }
   };
 
-  return (
-    <div className="relative">
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen(!open);
-        }}
-        className="rounded border border-dashed border-zinc-300 px-2 py-1 text-xs text-zinc-500 hover:border-zinc-400 hover:text-zinc-700"
-      >
-        + Add person
-      </button>
-      {open && (
+  const dropdownContent =
+    open && typeof document !== 'undefined' ? (
+      createPortal(
         <>
           <div
-            className="fixed inset-0 z-10"
+            className="fixed inset-0 z-[100] bg-black/20"
             onClick={() => setOpen(false)}
+            aria-hidden="true"
           />
           <div
-            className="absolute left-0 top-full z-20 mt-1 max-h-48 w-52 overflow-y-auto overscroll-contain rounded border border-zinc-200 bg-white py-1 shadow-lg"
+            className="fixed z-[101] max-h-48 w-52 overflow-y-auto overscroll-contain rounded border border-zinc-200 bg-white py-1 shadow-lg"
+            style={
+              dropdownRect
+                ? {
+                    left: dropdownRect.left,
+                    top: dropdownRect.bottom + 4,
+                  }
+                : undefined
+            }
             onWheel={(e) => e.stopPropagation()}
           >
             {error && (
@@ -190,6 +201,7 @@ function AddPersonDropdown({
             {employees.map((emp) => (
               <button
                 key={emp.id}
+                type="button"
                 onClick={() => handleAdd(emp.id)}
                 disabled={adding}
                 className="w-full px-3 py-1.5 text-left text-xs text-zinc-900 hover:bg-zinc-100 disabled:cursor-wait disabled:opacity-80"
@@ -198,8 +210,25 @@ function AddPersonDropdown({
               </button>
             ))}
           </div>
-        </>
-      )}
+        </>,
+        document.body
+      )
+    ) : null;
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(!open);
+        }}
+        className="rounded border border-dashed border-zinc-300 px-2 py-1 text-xs text-zinc-500 hover:border-zinc-400 hover:text-zinc-700"
+      >
+        + Add person
+      </button>
+      {dropdownContent}
     </div>
   );
 }

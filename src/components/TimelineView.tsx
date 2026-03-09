@@ -3,15 +3,24 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Venture, VenturePhase, HiringMilestone, Employee, Allocation, PhaseActivity } from '@/types';
 import { AddProjectModal } from './timeline/AddProjectModal';
-import { TimeAxis, getColumnWidth, getDateRange, getGridTotalWidth, type ZoomLevel } from './timeline/TimeAxis';
+import { TimeAxis, getColumnWidth, getDateRange, getGridTotalWidth, getMonthsBetween, type ZoomLevel } from './timeline/TimeAxis';
 import { ProjectRow } from './timeline/ProjectRow';
 import { ProjectPanel } from './timeline/ProjectPanel';
 import { MilestoneModal } from './timeline/MilestoneModal';
 import { PeopleView } from './timeline/PeopleView';
 import { ImpactPanel } from './ImpactPanel';
 import { useToast } from './Toast';
+import { useTimelineSyncOptional } from '@/contexts/TimelineSyncContext';
 
-export function TimelineView() {
+interface TimelineViewProps {
+  defaultCollapsed?: boolean;
+  showSectionHeader?: boolean;
+  refreshTrigger?: number;
+  onVentureDeleted?: () => void;
+}
+
+export function TimelineView(props?: TimelineViewProps) {
+  const { defaultCollapsed = false, showSectionHeader = true, refreshTrigger, onVentureDeleted } = props ?? {};
   const toast = useToast();
   const [ventures, setVentures] = useState<Venture[]>([]);
   const [phases, setPhases] = useState<VenturePhase[]>([]);
@@ -24,11 +33,13 @@ export function TimelineView() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showPeople, setShowPeople] = useState(false);
   const [showPeopleView, setShowPeopleView] = useState(false);
-  const [visibleDateRange, setVisibleDateRange] = useState<{ start: Date; end: Date } | null>(null);
   const [impactPanelOpen, setImpactPanelOpen] = useState(false);
   const [impactInitialMessage, setImpactInitialMessage] = useState<string | null>(null);
   const [zoom] = useState<ZoomLevel>('month');
-  const [zoomScale, setZoomScale] = useState(1);
+  const [localZoomScale, setLocalZoomScale] = useState(1);
+  const sync = useTimelineSyncOptional();
+  const zoomScale = sync?.zoomScale ?? localZoomScale;
+  const setZoomScale = sync?.setZoomScale ?? setLocalZoomScale;
   const [selectedVentureId, setSelectedVentureId] = useState<number | null>(null);
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<number>>(new Set());
   const [milestoneModal, setMilestoneModal] = useState<{
@@ -79,17 +90,26 @@ export function TimelineView() {
 
   useEffect(() => {
     fetchData().finally(() => setLoading(false));
-  }, []);
+  }, [refreshTrigger]);
 
   const isTimelineVisible = (v: Venture) => v.timeline_visible === true;
   const timelineVentures = ventures.filter(isTimelineVisible);
 
+  // When defaultCollapsed, start with all projects collapsed (once on initial load)
+  const hasInitializedCollapsedRef = useRef(false);
+  useEffect(() => {
+    if (defaultCollapsed && !loading && timelineVentures.length > 0 && !hasInitializedCollapsedRef.current) {
+      hasInitializedCollapsedRef.current = true;
+      setCollapsedProjectIds(new Set(timelineVentures.map((v) => v.id)));
+    }
+  }, [defaultCollapsed, loading, timelineVentures]);
+
   const PHASE_PILL_COLORS: Record<string, string> = {
     explore: 'bg-teal-500/90 text-white',
-    validate: 'bg-violet-500/90 text-white',
-    define: 'bg-amber-500/90 text-white',
+    shape: 'bg-violet-500/90 text-white',
     build: 'bg-rose-500/90 text-white',
     spin_out: 'bg-blue-500/90 text-white',
+    support: 'bg-cyan-500/90 text-white',
     pause: 'bg-zinc-200 text-zinc-700 border border-dashed border-zinc-400',
   };
   const getCurrentPhaseForVenture = (venturePhases: VenturePhase[]) => {
@@ -107,73 +127,64 @@ export function TimelineView() {
     }
     return null;
   };
-  const { start: startDate, end: endDate } = getDateRange(
-    phases,
-    milestones
-  );
-  const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) || 90;
+  const localDateRange = getDateRange(phases, milestones);
+  const startDate = (sync?.startDate) ?? localDateRange.start;
+  const endDate = (sync?.endDate) ?? localDateRange.end;
+  const totalDays = (sync?.totalDays) ?? (Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) || 90);
   const baseColumnWidth = getColumnWidth(zoom);
   const baseGridWidth = getGridTotalWidth(zoom, startDate, endDate);
-  const columnWidth = baseColumnWidth * zoomScale;
-  const gridTotalWidth = baseGridWidth * zoomScale;
-
-  // Snap scroll to today on initial load
-  useEffect(() => {
-    if (loading || !scrollContainerRef.current || hasScrolledToTodayRef.current || timelineVentures.length === 0) return;
-    const el = scrollContainerRef.current;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const startTime = startDate.getTime();
-    const endTime = endDate.getTime();
-    const totalMs = endTime - startTime;
-    if (totalMs <= 0) return;
-    const todayOffsetPct = Math.max(0, Math.min(1, (today.getTime() - startTime) / totalMs));
-    const sidebarWidth = 192; // w-48
-    const todayPixelOffset = sidebarWidth + todayOffsetPct * gridTotalWidth;
-    el.scrollLeft = todayPixelOffset;
-    hasScrolledToTodayRef.current = true;
-  }, [loading, timelineVentures.length, startDate, endDate, gridTotalWidth]);
-
-  // Compute visible date range from scroll (for People view)
-  const startTime = startDate.getTime();
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el || gridTotalWidth <= 0 || totalDays <= 0) return;
-    const updateVisibleRange = () => {
-      const sidebarWidth = 192;
-      const visibleGridStartPx = Math.max(0, el.scrollLeft - sidebarWidth);
-      const visibleGridEndPx = Math.min(gridTotalWidth, el.scrollLeft + el.clientWidth - sidebarWidth);
-      const startPct = visibleGridStartPx / gridTotalWidth;
-      const endPct = visibleGridEndPx / gridTotalWidth;
-      const totalMs = totalDays * 24 * 60 * 60 * 1000;
-      const visibleStart = new Date(startTime + startPct * totalMs);
-      const visibleEnd = new Date(startTime + endPct * totalMs);
-      setVisibleDateRange({ start: visibleStart, end: visibleEnd });
-    };
-    updateVisibleRange();
-    el.addEventListener('scroll', updateVisibleRange);
-    window.addEventListener('resize', updateVisibleRange);
-    return () => {
-      el.removeEventListener('scroll', updateVisibleRange);
-      window.removeEventListener('resize', updateVisibleRange);
-    };
-  }, [startTime, totalDays, gridTotalWidth]);
+  const columnWidth = (sync?.columnWidth) ?? baseColumnWidth * zoomScale;
+  const gridTotalWidth = (sync?.gridTotalWidth) ?? baseGridWidth * zoomScale;
 
   const ZOOM_SCALE_MIN = 0.5;
   const ZOOM_SCALE_MAX = 2.5;
   const ZOOM_SENSITIVITY = 0.0015;
-  const handleWheelZoom = useCallback(
+  const localHandleWheelZoom = useCallback(
     (e: React.WheelEvent) => {
-      // Only zoom when Ctrl/Cmd is held; otherwise let vertical scroll work normally
       if (!e.ctrlKey && !e.metaKey) return;
       const delta = -e.deltaY * ZOOM_SENSITIVITY;
       if (delta !== 0) {
         e.preventDefault();
-        setZoomScale((s) => Math.max(ZOOM_SCALE_MIN, Math.min(ZOOM_SCALE_MAX, s + delta)));
+        setLocalZoomScale((s) => Math.max(ZOOM_SCALE_MIN, Math.min(ZOOM_SCALE_MAX, s + delta)));
       }
     },
     []
   );
+  const handleWheelZoom = sync?.onWheelZoom ?? localHandleWheelZoom;
+
+  // Snap scroll to today on initial load (use sync context when available)
+  useEffect(() => {
+    if (loading || !scrollContainerRef.current || timelineVentures.length === 0 || hasScrolledToTodayRef.current) return;
+    const el = scrollContainerRef.current;
+    let offset: number;
+    if (sync?.scrollToTodayOffset != null) {
+      offset = sync.scrollToTodayOffset;
+    } else {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const startTime = startDate.getTime();
+      const endTime = endDate.getTime();
+      const totalMs = endTime - startTime;
+      offset = totalMs <= 0 ? 192 : 192 + Math.max(0, Math.min(1, (today.getTime() - startTime) / totalMs)) * gridTotalWidth;
+    }
+    el.scrollLeft = offset;
+    hasScrolledToTodayRef.current = true;
+  }, [loading, timelineVentures.length, startDate, endDate, gridTotalWidth, sync]);
+
+  // Sync scroll from context (when People Allocation scrolls)
+  useEffect(() => {
+    if (!sync || !scrollContainerRef.current) return;
+    const el = scrollContainerRef.current;
+    if (Math.abs(el.scrollLeft - sync.scrollLeft) > 2) {
+      el.scrollLeft = sync.scrollLeft;
+    }
+  }, [sync?.scrollLeft]);
+
+  const handleScroll = useCallback(() => {
+    if (sync && scrollContainerRef.current) {
+      sync.reportScroll('timeline', scrollContainerRef.current.scrollLeft);
+    }
+  }, [sync]);
 
   const updateAllocation = async (
     id: number,
@@ -258,10 +269,10 @@ export function TimelineView() {
     }
   };
 
-  const PHASE_ORDER = ['explore', 'validate', 'define', 'build', 'spin_out'] as const;
+  const PHASE_ORDER = ['explore', 'shape', 'build', 'spin_out', 'support'] as const;
 
   const sortVenturePhasesByDate = useCallback(
-    (venturePhases: { phase: string; start_date: string }[]) =>
+    (venturePhases: VenturePhase[]) =>
       [...venturePhases].sort(
         (a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime()
       ),
@@ -497,10 +508,10 @@ export function TimelineView() {
 
   const RESUME_PHASE_LABELS: Record<string, string> = {
     explore: 'Explore',
-    validate: 'Validate',
-    define: 'Define',
+    shape: 'Shape',
     build: 'Build',
     spin_out: 'Spin out',
+    support: 'Support',
   };
 
   const selectedVenture = selectedVentureId
@@ -557,7 +568,7 @@ export function TimelineView() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="h-8 w-48 animate-pulse rounded bg-zinc-200" />
         <div className="h-96 animate-pulse rounded-xl border border-zinc-200 bg-zinc-50" />
       </div>
@@ -565,11 +576,13 @@ export function TimelineView() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight text-zinc-900">Active Ventures</h2>
-          <p className="mt-0.5 text-sm text-zinc-500">
+          {showSectionHeader && (
+            <h2 className="text-xl font-semibold tracking-tight text-zinc-900">Active Ventures</h2>
+          )}
+          <p className={`text-sm text-zinc-500 ${showSectionHeader ? 'mt-0.5' : ''}`}>
             Drag phases to resize · Drag milestones to move · Ctrl+scroll to zoom
           </p>
         </div>
@@ -608,7 +621,7 @@ export function TimelineView() {
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800"
+            className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="12" y1="5" x2="12" y2="19" />
@@ -621,8 +634,16 @@ export function TimelineView() {
 
       {timelineVentures.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-200 py-20">
-          <p className="text-zinc-600">No projects on timeline.</p>
-          <p className="mt-1 text-sm text-zinc-500">Add a project to get started.</p>
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-500">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+          </div>
+          <p className="text-base font-medium text-zinc-700">No projects on timeline</p>
+          <p className="mt-1 text-sm text-zinc-500">Add a project to visualize phases and capacity.</p>
           <button
             onClick={() => setShowAddModal(true)}
             className="mt-4 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
@@ -631,41 +652,68 @@ export function TimelineView() {
           </button>
         </div>
       ) : (
-        <div className="flex max-h-[calc(100vh-14rem)] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+        <div className="flex max-h-[calc(100vh-14rem)] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm ring-1 ring-zinc-900/5">
           <div
             ref={scrollContainerRef}
-            className="relative flex flex-1 flex-col overflow-auto"
+            className="relative flex flex-1 flex-col overflow-auto overscroll-contain"
             onWheel={handleWheelZoom}
+            onScroll={handleScroll}
           >
-            <div className="flex min-w-max">
-              <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50" />
-              <div className="timeline-grid shrink-0" style={{ width: gridTotalWidth }}>
-                <TimeAxis
-                  zoom={zoom}
-                  startDate={startDate}
-                  endDate={endDate}
-                  columnWidth={columnWidth}
-                />
+            <div className="relative flex min-w-max flex-col pt-2">
+              {(() => {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const startTime = startDate.getTime();
+                const endTime = endDate.getTime();
+                const totalMs = endTime - startTime;
+                if (totalMs <= 0) return null;
+                const todayOffsetPct = Math.max(0, Math.min(1, (today.getTime() - startTime) / totalMs));
+                const sidebarWidth = 192;
+                const leftPx = sidebarWidth + todayOffsetPct * gridTotalWidth;
+                return (
+                  <div
+                    className="pointer-events-none absolute left-0 top-0 z-10 h-6"
+                    style={{ width: leftPx }}
+                    aria-hidden
+                  >
+                    <span
+                      className="absolute right-0 top-0 -translate-y-1 -translate-x-1/2 whitespace-nowrap rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-600"
+                      title="Today"
+                    >
+                      Today
+                    </span>
+                  </div>
+                );
+              })()}
+              <div className="flex min-w-max">
+                <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50" />
+                <div className="timeline-grid shrink-0" style={{ width: gridTotalWidth }}>
+                  <TimeAxis
+                    zoom={zoom}
+                    startDate={startDate}
+                    endDate={endDate}
+                    columnWidth={columnWidth}
+                  />
+                </div>
               </div>
-            </div>
             {timelineVentures.map((v, ventureIndex) => {
               const isCollapsed = collapsedProjectIds.has(v.id);
               const venturePhases = phases.filter((p) => p.venture_id === v.id);
               const currentPhase = getCurrentPhaseForVenture(venturePhases);
-              const phaseTypes = ['explore', 'validate', 'define', 'build', 'spin_out', 'pause'] as const;
+              const phaseTypes = ['explore', 'shape', 'build', 'spin_out', 'support', 'pause'] as const;
               const phaseLabels: Record<string, string> = {
                 explore: 'Explore',
-                validate: 'Validate',
-                define: 'Define',
+                shape: 'Shape',
                 build: 'Build',
                 spin_out: 'Spin out',
+                support: 'Support',
                 pause: 'Paused',
               };
 
               return (
                 <div key={v.id} className="flex flex-col">
                   {ventureIndex > 0 && (
-                    <div className="flex min-w-max border-t-2 border-zinc-900 pt-4">
+                    <div className="flex min-w-max border-t border-zinc-200 pt-2">
                       <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50" />
                       <div className="shrink-0 bg-zinc-50" style={{ width: gridTotalWidth }} />
                     </div>
@@ -673,7 +721,7 @@ export function TimelineView() {
                   <div className="flex min-w-max">
                     <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50">
                       {isCollapsed ? (
-                        <div className="flex h-10 items-center gap-1.5 border-b border-zinc-100 px-3">
+                        <div className="flex h-14 items-center gap-1.5 border-b border-zinc-100 px-3">
                           <button
                             type="button"
                             onClick={(e) => {
@@ -730,10 +778,10 @@ export function TimelineView() {
                                 const isCurrentPhase = currentPhase?.id === phase.id;
                                 const abbrev: Record<string, string> = {
                                   explore: 'E',
-                                  validate: 'V',
-                                  define: 'D',
+                                  shape: 'Sh',
                                   build: 'B',
-                                  spin_out: 'S',
+                                  spin_out: 'O',
+                                  support: 'Su',
                                   pause: 'P',
                                 };
                                 return (
@@ -791,7 +839,21 @@ export function TimelineView() {
                         </>
                       )}
                     </div>
-                    <div className="timeline-grid relative shrink-0 pb-4" data-timeline-grid style={{ width: gridTotalWidth }}>
+                    <div className="timeline-grid relative shrink-0 pb-2" data-timeline-grid style={{ width: gridTotalWidth }}>
+                      {(() => {
+                        const months = getMonthsBetween(startDate, endDate);
+                        return (
+                          <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
+                            {months.slice(1).map((m, i) => (
+                              <div
+                                key={m.toISOString().slice(0, 7)}
+                                className="absolute top-0 bottom-0 w-px bg-zinc-100"
+                                style={{ left: `${(i + 1) * columnWidth}px` }}
+                              />
+                            ))}
+                          </div>
+                        );
+                      })()}
                       <ProjectRow
                         key={v.id}
                         venture={v}
@@ -834,10 +896,51 @@ export function TimelineView() {
                 </div>
               );
             })}
+            {showPeopleView && (
+              <PeopleView
+                ventures={ventures}
+                phases={phases}
+                allocations={allocations}
+                employees={employees}
+                startDate={startDate}
+                endDate={endDate}
+                totalDays={totalDays}
+                gridWidth={gridTotalWidth}
+              />
+            )}
+            {(() => {
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const startTime = startDate.getTime();
+              const endTime = endDate.getTime();
+              const totalMs = endTime - startTime;
+              if (totalMs <= 0) return null;
+              const todayOffsetPct = Math.max(0, Math.min(1, (today.getTime() - startTime) / totalMs));
+              const sidebarWidth = 192;
+              const leftPx = sidebarWidth + todayOffsetPct * gridTotalWidth;
+              return (
+                <div
+                  className="pointer-events-none absolute top-6 z-[5] border-l border-amber-200"
+                  style={{ left: leftPx, width: 0, height: 'calc(100% - 1.5rem)' }}
+                  title="Today"
+                  aria-hidden
+                />
+              );
+            })()}
           </div>
           {selectedVenture && (
-            <div className="w-80 shrink-0">
-              <ProjectPanel
+            <>
+              <div
+                className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[2px]"
+                onClick={() => setSelectedVentureId(null)}
+                aria-hidden
+              />
+              <div
+                className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-zinc-200 bg-white shadow-2xl animate-slide-in-right"
+                role="dialog"
+                aria-labelledby="edit-project-title"
+              >
+                <ProjectPanel
                 venture={selectedVenture}
                 phases={phases.filter((p) => p.venture_id === selectedVenture.id)}
                 milestones={milestones.filter((m) => m.venture_id === selectedVenture.id)}
@@ -884,21 +987,28 @@ export function TimelineView() {
                     );
                   }
                 }}
+                onDelete={async () => {
+                  const id = selectedVenture.id;
+                  const res = await fetch(`/api/ventures/${id}`, { method: 'DELETE' });
+                  const data = await res.json().catch(() => ({}));
+                  if (res.ok) {
+                    setVentures((prev) => prev.filter((v) => v.id !== id));
+                    setPhases((prev) => prev.filter((p) => p.venture_id !== id));
+                    setMilestones((prev) => prev.filter((m) => m.venture_id !== id));
+                    setAllocations((prev) => prev.filter((a) => a.venture_id !== id));
+                    setSelectedVentureId(null);
+                    onVentureDeleted?.();
+                    toast.show('Project deleted');
+                  } else {
+                    toast.show(data.error || 'Failed to delete project');
+                  }
+                }}
               />
-            </div>
+              </div>
+            </>
           )}
         </div>
-      )}
-
-      {showPeopleView && timelineVentures.length > 0 && visibleDateRange && (
-        <PeopleView
-          ventures={ventures}
-          phases={phases}
-          allocations={allocations}
-          employees={employees}
-          visibleStartDate={visibleDateRange.start}
-          visibleEndDate={visibleDateRange.end}
-        />
+        </div>
       )}
 
       {milestoneModal && (
@@ -924,11 +1034,11 @@ export function TimelineView() {
         const nextPhase = idx < venturePhases.length - 1 ? venturePhases[idx + 1] : null;
         return (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm"
             onClick={() => setResumePausePhaseId(null)}
           >
             <div
-              className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-5 shadow-xl"
+              className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
               <h3 className="mb-3 text-lg font-semibold text-zinc-900">Resume from pause</h3>

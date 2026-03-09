@@ -33,19 +33,21 @@ const BACKLOG_NO_PARTNER_COLUMNS: { id: string; label: string; status: 'backlog'
 
 const BACKLOG_COLUMNS = [...BACKLOG_STANDARD_COLUMNS, ...BACKLOG_NO_PARTNER_COLUMNS];
 
-const PHASE_ORDER = ['explore', 'validate', 'define', 'build', 'spin_out', 'pause'] as const;
+const PHASE_ORDER = ['explore', 'shape', 'build', 'spin_out', 'support', 'pause'] as const;
 const ACTIVE_PHASE_COLUMNS: { id: string; label: string; phase: (typeof PHASE_ORDER)[number] | null }[] = [
   { id: 'phase-explore', label: 'Explore', phase: 'explore' },
-  { id: 'phase-validate', label: 'Validate', phase: 'validate' },
-  { id: 'phase-define', label: 'Define', phase: 'define' },
+  { id: 'phase-shape', label: 'Shape', phase: 'shape' },
   { id: 'phase-build', label: 'Build', phase: 'build' },
   { id: 'phase-spin-out', label: 'Spin out', phase: 'spin_out' },
+  { id: 'phase-support', label: 'Support', phase: 'support' },
   { id: 'phase-paused', label: 'Paused', phase: 'pause' },
   { id: 'phase-unplanned', label: '—', phase: null },
 ];
 
 interface KanbanBoardProps {
   refreshTrigger?: number;
+  onVentureAddedToTimeline?: () => void;
+  onVentureDeleted?: () => void;
 }
 
 function getCurrentPhaseForVenture(venturePhases: VenturePhase[]): (typeof PHASE_ORDER)[number] | null {
@@ -66,7 +68,7 @@ function getCurrentPhaseForVenture(venturePhases: VenturePhase[]): (typeof PHASE
   return null;
 }
 
-export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
+export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentureDeleted }: KanbanBoardProps) {
   const [ventures, setVentures] = useState<Venture[]>([]);
   const [venturePhases, setVenturePhases] = useState<VenturePhase[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -140,18 +142,37 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
       status: 'active',
       exploration_phase: 'discovery',
     });
-    if (ok) {
-      // Apply timeline template (phases) if none exist
-      try {
-        const phasesRes = await fetch(`/api/venture-phases?ventureId=${id}`);
-        const phases = await phasesRes.json();
-        if (Array.isArray(phases) && phases.length === 0) {
-          await fetch(`/api/ventures/${id}/apply-timeline-template`, { method: 'POST' });
-        }
-      } catch {
-        // Non-fatal; phases can be added manually
+    if (!ok) return;
+
+    try {
+      const templateRes = await fetch(`/api/ventures/${id}/apply-timeline-template`, { method: 'POST' });
+      if (!templateRes.ok) {
+        const data = await templateRes.json().catch(() => ({}));
+        const msg = data.error || 'Failed to apply timeline template';
+        toast.show(data.hint ? `${msg}. ${data.hint}` : msg);
+        await updateVenture(id, { timeline_visible: false, status: 'backlog' });
+        return;
       }
+
+      const today = new Date();
+      const milestoneDate = new Date(today);
+      milestoneDate.setDate(milestoneDate.getDate() + 90);
+      await fetch('/api/hiring-milestones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          venture_id: id,
+          role_type: 'other',
+          label: 'Milestone',
+          target_date: milestoneDate.toISOString().slice(0, 10),
+        }),
+      });
+
+      onVentureAddedToTimeline?.();
       toast.show('Project added to Active Ventures');
+    } catch {
+      toast.show('Failed to apply timeline template');
+      await updateVenture(id, { timeline_visible: false, status: 'backlog' });
     }
   };
 
@@ -202,7 +223,10 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
     if (removed) setVentures((p) => p.filter((v) => v.id !== id));
     const res = await fetch(`/api/ventures/${id}`, { method: 'DELETE' });
     const data = await res.json().catch(() => ({}));
-    if (res.ok) return true;
+    if (res.ok) {
+      onVentureDeleted?.();
+      return true;
+    }
     if (removed) setVentures((p) => [...p, removed].sort((a, b) => a.backlog_priority - b.backlog_priority));
     toast.show(data.error || 'Failed to delete venture');
     return false;
@@ -318,10 +342,6 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
     <div className="space-y-8">
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <section>
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-zinc-800">
-            <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-            Backlog
-          </h2>
           <div className="space-y-6">
             <div>
               <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">With design partner</h3>
@@ -377,7 +397,7 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
         </section>
 
         <section>
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-zinc-800">
+          <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold text-zinc-800">
             <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
             Active ventures by phase
           </h2>

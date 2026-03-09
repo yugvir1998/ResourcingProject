@@ -29,7 +29,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, status = 'backlog', backlog_priority = 0, design_partner_status, exploration_phase, one_metric_that_matters, notes, next_steps, timeline_visible } = body;
+    const { name, status = 'backlog', backlog_priority = 0, design_partner_status, exploration_phase, one_metric_that_matters, notes, next_steps, primary_contact_id, notion_link, timeline_visible } = body;
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
@@ -44,19 +44,33 @@ export async function POST(request: Request) {
       one_metric_that_matters: one_metric_that_matters || null,
       notes: notes || null,
       next_steps: next_steps || null,
+      primary_contact_id: primary_contact_id ?? null,
+      notion_link: notion_link?.trim() || null,
     };
     if (timeline_visible != null) insertPayload.timeline_visible = !!timeline_visible;
 
-    const { data, error } = await getSupabase()
+    let result = await getSupabase()
       .from('ventures')
       .insert(insertPayload as Record<string, unknown>)
       .select()
       .single();
 
+    // If notion_link column doesn't exist (migration not run), retry without it
+    if (result.error && (result.error.message?.includes('notion_link') || result.error.message?.includes('does not exist'))) {
+      delete insertPayload.notion_link;
+      result = await getSupabase()
+        .from('ventures')
+        .insert(insertPayload as Record<string, unknown>)
+        .select()
+        .single();
+    }
+
+    const { data, error } = result;
     if (error) throw error;
     return NextResponse.json(data);
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ error: 'Failed to create venture' }, { status: 500 });
+    const msg = e instanceof Error ? e.message : 'Failed to create venture';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
