@@ -1,19 +1,40 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import type { Venture, Employee } from '@/types';
+import type { Venture, VenturePhase, Employee } from '@/types';
+
+function getCurrentPhaseForVenture(venturePhases: VenturePhase[]): string | null {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const sorted = [...venturePhases].sort(
+    (a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime()
+  );
+  for (const p of sorted) {
+    const start = new Date(p.start_date);
+    const end = new Date(p.end_date);
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+    if (today >= start && today <= end) {
+      return p.phase === 'pause' ? 'pause' : p.phase;
+    }
+  }
+  return null;
+}
 
 export function BattlefieldSummary() {
   const [ventures, setVentures] = useState<Venture[]>([]);
+  const [venturePhases, setVenturePhases] = useState<VenturePhase[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       fetch('/api/ventures').then((r) => r.json()),
+      fetch('/api/venture-phases').then((r) => r.json()),
       fetch('/api/employees').then((r) => r.json()),
-    ]).then(([v, e]) => {
+    ]).then(([v, p, e]) => {
       setVentures(v);
+      setVenturePhases(p || []);
       setEmployees(e);
       setLoading(false);
     });
@@ -21,7 +42,10 @@ export function BattlefieldSummary() {
 
   const backlogCount = ventures.filter((x) => x.status === 'backlog').length;
   const activeCount = ventures.filter((x) => x.status === 'active').length;
-  const supportCount = ventures.filter((x) => x.status === 'support').length;
+  const supportCount = ventures.filter((v) => {
+    const phases = venturePhases.filter((p) => p.venture_id === v.id);
+    return getCurrentPhaseForVenture(phases) === 'support';
+  }).length;
 
   if (loading) {
     return (

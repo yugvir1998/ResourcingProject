@@ -21,6 +21,7 @@ export interface Venture {
   name: string;
   status: VentureStatus;
   backlog_priority: number;
+  timeline_priority?: number | null;
   design_partner_status: DesignPartnerStatus | null;
   exploration_phase: ExplorationPhase | null;
   one_metric_that_matters: string | null;

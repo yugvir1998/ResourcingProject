@@ -23,7 +23,7 @@ export async function PATCH(
   const { id } = await params;
   const body = await request.json();
 
-  const allowed = ['name', 'status', 'backlog_priority', 'design_partner_status', 'exploration_phase', 'one_metric_that_matters', 'notes', 'next_steps', 'primary_contact_id', 'notion_link', 'timeline_visible', 'hidden_from_venture_tracker'];
+  const allowed = ['name', 'status', 'backlog_priority', 'timeline_priority', 'design_partner_status', 'exploration_phase', 'one_metric_that_matters', 'notes', 'next_steps', 'primary_contact_id', 'notion_link', 'timeline_visible', 'hidden_from_venture_tracker'];
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
   for (const key of allowed) {

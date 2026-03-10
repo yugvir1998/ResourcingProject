@@ -405,12 +405,14 @@ export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentur
             Ventures are grouped by their current phase on the timeline. Phases cannot be changed by dragging here.
           </p>
           <div className="flex gap-4 overflow-x-auto pb-4">
-            {ACTIVE_PHASE_COLUMNS.map((col) => (
+            {ACTIVE_PHASE_COLUMNS.map((col) => {
+              const phaseVentures = getActiveByPhase(col.phase);
+              return (
               <KanbanColumn
                 key={col.id}
                 id={col.id}
-                title={col.label}
-                ventures={getActiveByPhase(col.phase)}
+                title={`${col.label} (${phaseVentures.length})`}
+                ventures={phaseVentures}
                 variant="active"
                 renderCard={(v) => (
                   <VentureCard
@@ -425,7 +427,8 @@ export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentur
                   />
                 )}
               />
-            ))}
+            );
+            })}
           </div>
         </section>
       </DndContext>

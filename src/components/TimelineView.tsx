@@ -1,7 +1,54 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  DndContext,
+  DragEndEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import { arrayMove, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { Venture, VenturePhase, HiringMilestone, Employee, Allocation, PhaseActivity } from '@/types';
+
+function SortableVentureRow({
+  venture,
+  children,
+}: {
+  venture: Venture;
+  children: (params: {
+    dragHandle: React.ReactNode;
+    setNodeRef: (el: HTMLElement | null) => void;
+    style: React.CSSProperties;
+  }) => React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: venture.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  const dragHandle = (
+    <button
+      type="button"
+      className="shrink-0 cursor-grab rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600 active:cursor-grabbing"
+      aria-label="Drag to reorder"
+      {...attributes}
+      {...listeners}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="opacity-60">
+        <circle cx="6" cy="8" r="1.5" />
+        <circle cx="12" cy="8" r="1.5" />
+        <circle cx="18" cy="8" r="1.5" />
+        <circle cx="6" cy="16" r="1.5" />
+        <circle cx="12" cy="16" r="1.5" />
+        <circle cx="18" cy="16" r="1.5" />
+      </svg>
+    </button>
+  );
+  return <>{children({ dragHandle, setNodeRef, style })}</>;
+}
 import { AddProjectModal } from './timeline/AddProjectModal';
 import { TimeAxis, getColumnWidth, getDateRange, getGridTotalWidth, getMonthsBetween, type ZoomLevel } from './timeline/TimeAxis';
 import { ProjectRow } from './timeline/ProjectRow';
@@ -62,6 +109,29 @@ export function TimelineView(props?: TimelineViewProps) {
     });
   }, []);
 
+  const handleHideFromTimeline = useCallback(
+    async (ventureId: number) => {
+      setVentures((prev) => prev.map((v) => (v.id === ventureId ? { ...v, timeline_visible: false } : v)));
+      setSelectedVentureId((id) => (id === ventureId ? null : id));
+      const res = await fetch(`/api/ventures/${ventureId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timeline_visible: false }),
+      });
+      if (!res.ok) {
+        setVentures((prev) => prev.map((v) => (v.id === ventureId ? { ...v, timeline_visible: true } : v)));
+        toast.show('Failed to hide');
+      } else {
+        toast.show('Hidden from timeline');
+      }
+    },
+    [toast]
+  );
+
+  const timelineSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
+
   const fetchData = async () => {
     const [vRes, pRes, paRes, mRes, aRes, eRes] = await Promise.all([
       fetch('/api/ventures'),
@@ -93,7 +163,43 @@ export function TimelineView(props?: TimelineViewProps) {
   }, [refreshTrigger]);
 
   const isTimelineVisible = (v: Venture) => v.timeline_visible === true;
-  const timelineVentures = ventures.filter(isTimelineVisible);
+  const timelineVentures = ventures
+    .filter(isTimelineVisible)
+    .sort(
+      (a, b) =>
+        (a.timeline_priority ?? 0) - (b.timeline_priority ?? 0) ||
+        a.backlog_priority - b.backlog_priority ||
+        a.name.localeCompare(b.name)
+    );
+
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const oldIndex = timelineVentures.findIndex((v) => v.id === active.id);
+      const newIndex = timelineVentures.findIndex((v) => v.id === over.id);
+      if (oldIndex < 0 || newIndex < 0) return;
+      const reordered = arrayMove(timelineVentures, oldIndex, newIndex);
+      const ventureIds = reordered.map((v) => v.id);
+      setVentures((prev) =>
+        prev.map((v) => {
+          const idx = ventureIds.indexOf(v.id);
+          if (idx >= 0) return { ...v, timeline_priority: idx };
+          return v;
+        })
+      );
+      const res = await fetch('/api/ventures/timeline-reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ventureIds }),
+      });
+      if (!res.ok) {
+        fetchData();
+        toast.show('Failed to reorder');
+      }
+    },
+    [timelineVentures, toast]
+  );
 
   // When defaultCollapsed, start with all projects collapsed (once on initial load)
   const hasInitializedCollapsedRef = useRef(false);
@@ -170,15 +276,6 @@ export function TimelineView(props?: TimelineViewProps) {
     el.scrollLeft = offset;
     hasScrolledToTodayRef.current = true;
   }, [loading, timelineVentures.length, startDate, endDate, gridTotalWidth, sync]);
-
-  // Sync scroll from context (when People Allocation scrolls)
-  useEffect(() => {
-    if (!sync || !scrollContainerRef.current) return;
-    const el = scrollContainerRef.current;
-    if (Math.abs(el.scrollLeft - sync.scrollLeft) > 2) {
-      el.scrollLeft = sync.scrollLeft;
-    }
-  }, [sync?.scrollLeft]);
 
   const handleScroll = useCallback(() => {
     if (sync && scrollContainerRef.current) {
@@ -654,12 +751,15 @@ export function TimelineView(props?: TimelineViewProps) {
       ) : (
         <div className="flex max-h-[calc(100vh-14rem)] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm ring-1 ring-zinc-900/5">
           <div
-            ref={scrollContainerRef}
+            ref={(el) => {
+              (scrollContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+              sync?.registerTimelineRef(el);
+            }}
             className="relative flex flex-1 flex-col overflow-auto overscroll-contain"
             onWheel={handleWheelZoom}
             onScroll={handleScroll}
           >
-            <div className="relative flex min-w-max flex-col pt-2">
+            <div className="relative flex min-w-max flex-col pt-1">
               {(() => {
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
@@ -696,6 +796,8 @@ export function TimelineView(props?: TimelineViewProps) {
                   />
                 </div>
               </div>
+            <DndContext sensors={timelineSensors} onDragEnd={handleDragEnd}>
+              <SortableContext items={timelineVentures.map((v) => v.id)} strategy={verticalListSortingStrategy}>
             {timelineVentures.map((v, ventureIndex) => {
               const isCollapsed = collapsedProjectIds.has(v.id);
               const venturePhases = phases.filter((p) => p.venture_id === v.id);
@@ -711,9 +813,11 @@ export function TimelineView(props?: TimelineViewProps) {
               };
 
               return (
-                <div key={v.id} className="flex flex-col">
+                <SortableVentureRow key={v.id} venture={v}>
+                {({ dragHandle, setNodeRef, style }) => (
+                <div ref={setNodeRef} style={style} className="flex flex-col">
                   {ventureIndex > 0 && (
-                    <div className="flex min-w-max border-t border-zinc-200 pt-2">
+                    <div className="flex min-w-max border-t border-zinc-200 pt-1">
                       <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50" />
                       <div className="shrink-0 bg-zinc-50" style={{ width: gridTotalWidth }} />
                     </div>
@@ -721,7 +825,8 @@ export function TimelineView(props?: TimelineViewProps) {
                   <div className="flex min-w-max">
                     <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50">
                       {isCollapsed ? (
-                        <div className="flex h-14 items-center gap-1.5 border-b border-zinc-100 px-3">
+                        <div className="flex h-14 items-center gap-1.5 border-b border-zinc-100 px-2">
+                          {dragHandle}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -743,10 +848,23 @@ export function TimelineView(props?: TimelineViewProps) {
                               {currentPhase ? phaseLabels[currentPhase.phase] ?? '—' : '—'}
                             </span>
                           </div>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleHideFromTimeline(v.id); }}
+                            className="shrink-0 rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
+                            aria-label="Hide from timeline"
+                            title="Hide from timeline"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                          </button>
                         </div>
                       ) : (
                         <>
-                          <div className="flex h-8 items-center gap-2 border-b border-zinc-100 px-3">
+                          <div className="flex h-8 items-center gap-1.5 border-b border-zinc-100 px-2">
+                            {dragHandle}
                             <button
                               type="button"
                               onClick={(e) => {
@@ -766,6 +884,18 @@ export function TimelineView(props?: TimelineViewProps) {
                               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleHideFromTimeline(v.id); }}
+                              className="shrink-0 rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
+                              aria-label="Hide from timeline"
+                              title="Hide from timeline"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                <circle cx="12" cy="12" r="3" />
                               </svg>
                             </button>
                           </div>
@@ -806,7 +936,7 @@ export function TimelineView(props?: TimelineViewProps) {
                               })}
                             </div>
                           </div>
-                          <div className="h-6 border-b border-zinc-100" aria-hidden />
+                          <div className="h-4 border-b border-zinc-100" aria-hidden />
                           {phaseTypes.map((type) => {
                             const phase = venturePhases.find((p) => p.phase === type);
                             if (!phase) return null;
@@ -824,12 +954,12 @@ export function TimelineView(props?: TimelineViewProps) {
                             return (
                               <div key={phase.id}>
                                 {activities.map((act) => (
-                                  <div key={act.id} className="flex h-8 items-center border-b border-zinc-100 pl-6 pr-3">
+                                  <div key={act.id} className="flex h-8 items-center border-b border-zinc-100 pl-5 pr-2">
                                     <span className="truncate text-xs text-zinc-600">{act.name}</span>
                                   </div>
                                 ))}
                                 {showPeople && (phaseAllocs.length > 0 || employees.some((e) => !phaseAllocs.some((a) => a.employee_id === e.id))) && (
-                                  <div className="flex h-8 items-center border-b border-zinc-100 pl-6 pr-3">
+                                  <div className="flex h-8 items-center border-b border-zinc-100 pl-5 pr-2">
                                     <span className="truncate text-xs text-zinc-500">{peopleNames || '\u00A0'}</span>
                                   </div>
                                 )}
@@ -839,7 +969,7 @@ export function TimelineView(props?: TimelineViewProps) {
                         </>
                       )}
                     </div>
-                    <div className="timeline-grid relative shrink-0 pb-2" data-timeline-grid style={{ width: gridTotalWidth }}>
+                    <div className="timeline-grid relative shrink-0 pb-1" data-timeline-grid style={{ width: gridTotalWidth }}>
                       {(() => {
                         const months = getMonthsBetween(startDate, endDate);
                         return (
@@ -894,8 +1024,12 @@ export function TimelineView(props?: TimelineViewProps) {
                     </div>
                   </div>
                 </div>
+                )}
+                </SortableVentureRow>
               );
             })}
+              </SortableContext>
+            </DndContext>
             {showPeopleView && (
               <PeopleView
                 ventures={ventures}

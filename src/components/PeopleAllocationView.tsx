@@ -413,15 +413,6 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
     hasScrolledToTodayRef.current = true;
   }, [loading, employees.length, sync, startDate, endDate, gridWidth]);
 
-  // Sync scroll from context (when Timeline scrolls)
-  useEffect(() => {
-    if (!sync || !scrollContainerRef.current) return;
-    const el = scrollContainerRef.current;
-    if (Math.abs(el.scrollLeft - sync.scrollLeft) > 2) {
-      el.scrollLeft = sync.scrollLeft;
-    }
-  }, [sync?.scrollLeft]);
-
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayTime = today.getTime();
@@ -463,7 +454,10 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
       </h2>
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm ring-1 ring-zinc-900/5">
         <div
-          ref={scrollContainerRef}
+          ref={(el) => {
+            (scrollContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+            sync?.registerPeopleRef(el);
+          }}
           className="overflow-x-auto"
           onScroll={handleScroll}
           onWheel={sync?.onWheelZoom}

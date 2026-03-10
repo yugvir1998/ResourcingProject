@@ -26,8 +26,6 @@ type TimelineSyncContextValue = {
   zoom: ZoomLevel;
   zoomScale: number;
   setZoomScale: (v: number | ((prev: number) => number)) => void;
-  scrollLeft: number;
-  setScrollLeft: (v: number) => void;
   startDate: Date;
   endDate: Date;
   weeks: Date[];
@@ -39,6 +37,8 @@ type TimelineSyncContextValue = {
   markScrolledToToday: () => void;
   reportScroll: (source: 'timeline' | 'people', scrollLeft: number) => void;
   onWheelZoom: (e: React.WheelEvent) => void;
+  registerTimelineRef: (el: HTMLDivElement | null) => void;
+  registerPeopleRef: (el: HTMLDivElement | null) => void;
 };
 
 const TimelineSyncContext = createContext<TimelineSyncContextValue | null>(null);
@@ -51,15 +51,16 @@ export function TimelineSyncProvider({
   refreshTrigger?: number;
 }) {
   const [zoomScale, setZoomScale] = useState(1);
-  const [scrollLeft, setScrollLeftState] = useState(0);
   const [hasScrolledToToday, setHasScrolledToToday] = useState(false);
   const [syncData, setSyncData] = useState<{
     phases: { start_date: string; end_date: string }[];
     milestones: { target_date: string }[];
     allocations: { week_start: string }[];
   }>({ phases: [], milestones: [], allocations: [] });
+  const timelineScrollRef = useRef<HTMLDivElement | null>(null);
+  const peopleScrollRef = useRef<HTMLDivElement | null>(null);
   const lastReportedScrollRef = useRef<number>(0);
-  const isSyncingRef = useRef(false);
+  const rafIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -113,17 +114,27 @@ export function TimelineSyncProvider({
     return SIDEBAR_WIDTH + todayOffsetPct * gridTotalWidth;
   }, [startDate, endDate, gridTotalWidth, today]);
 
-  const setScrollLeft = useCallback((v: number) => {
-    lastReportedScrollRef.current = v;
-    setScrollLeftState(v);
+  const registerTimelineRef = useCallback((el: HTMLDivElement | null) => {
+    timelineScrollRef.current = el;
+  }, []);
+
+  const registerPeopleRef = useCallback((el: HTMLDivElement | null) => {
+    peopleScrollRef.current = el;
   }, []);
 
   const reportScroll = useCallback(
     (source: 'timeline' | 'people', newScrollLeft: number) => {
-      if (isSyncingRef.current) return;
       if (Math.abs(newScrollLeft - lastReportedScrollRef.current) < 1) return;
       lastReportedScrollRef.current = newScrollLeft;
-      setScrollLeftState(newScrollLeft);
+
+      if (rafIdRef.current != null) cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        const target = source === 'timeline' ? peopleScrollRef.current : timelineScrollRef.current;
+        if (target && Math.abs(target.scrollLeft - newScrollLeft) > 2) {
+          target.scrollLeft = newScrollLeft;
+        }
+      });
     },
     []
   );
@@ -150,8 +161,6 @@ export function TimelineSyncProvider({
       zoom,
       zoomScale,
       setZoomScale,
-      scrollLeft,
-      setScrollLeft,
       startDate,
       endDate,
       weeks,
@@ -163,10 +172,11 @@ export function TimelineSyncProvider({
       markScrolledToToday,
       reportScroll,
       onWheelZoom,
+      registerTimelineRef,
+      registerPeopleRef,
     }),
     [
       zoomScale,
-      scrollLeft,
       startDate,
       endDate,
       weeks,
@@ -177,6 +187,8 @@ export function TimelineSyncProvider({
       hasScrolledToToday,
       reportScroll,
       onWheelZoom,
+      registerTimelineRef,
+      registerPeopleRef,
     ]
   );
 

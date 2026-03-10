@@ -84,8 +84,8 @@ export function PeopleView({
   const peopleRows = employees.filter((e) => employeeIds.has(e.id));
   if (peopleRows.length === 0) {
     return (
-      <div className="flex min-w-max border-t border-zinc-200 pt-2">
-        <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50 px-3 py-4">
+      <div className="flex min-w-max border-t border-zinc-200 pt-1">
+        <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50 px-2 py-3">
           <p className="text-xs text-zinc-500">People</p>
         </div>
         <div className="flex shrink-0 items-center bg-zinc-50 px-4" style={{ width: gridWidth }}>
@@ -104,7 +104,7 @@ export function PeopleView({
   });
 
   return (
-    <div className="flex flex-col border-t border-zinc-200 pt-2">
+    <div className="flex flex-col border-t border-zinc-200 pt-1">
       {peopleRows.map((emp, idx) => {
         const weekMap = byEmployeeAndWeek.get(emp.id) ?? new Map();
         const weeks = Array.from(weekMap.entries());
@@ -114,7 +114,7 @@ export function PeopleView({
             key={emp.id}
             className={`flex min-w-max ${idx > 0 ? 'border-t border-zinc-100' : ''}`}
           >
-            <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50 px-3 py-2">
+            <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50 px-2 py-2">
               <span className="truncate text-sm font-medium text-zinc-800">{emp.name}</span>
             </div>
             <div
