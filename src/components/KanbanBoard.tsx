@@ -36,7 +36,7 @@ const BACKLOG_COLUMNS = [...BACKLOG_STANDARD_COLUMNS, ...BACKLOG_NO_PARTNER_COLU
 const PHASE_ORDER = ['explore', 'shape', 'build', 'spin_out', 'support', 'pause'] as const;
 const ACTIVE_PHASE_COLUMNS: { id: string; label: string; phase: (typeof PHASE_ORDER)[number] | null }[] = [
   { id: 'phase-explore', label: 'Explore', phase: 'explore' },
-  { id: 'phase-shape', label: 'Shape', phase: 'shape' },
+  { id: 'phase-shape', label: 'Concept', phase: 'shape' },
   { id: 'phase-build', label: 'Build', phase: 'build' },
   { id: 'phase-spin-out', label: 'Spin out', phase: 'spin_out' },
   { id: 'phase-support', label: 'Support', phase: 'support' },

@@ -223,7 +223,7 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
               </p>
             )}
             <p className="mt-2 text-xs text-zinc-500">
-              Template: Explore 2mo → Shape 2mo → Build 2mo → Spin out 2mo → Support 6mo + placeholder milestone
+              Template: Explore 2mo → Concept 2mo → Build 2mo → Spin out 2mo → Support 6mo + placeholder milestone
             </p>
             <div className="mt-4 flex gap-2">
               <button

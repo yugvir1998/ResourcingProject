@@ -17,6 +17,7 @@ import {
   getWeeksBetween,
   type ZoomLevel,
 } from '@/components/timeline/TimeAxis';
+import { useCurrentDate } from '@/hooks/useCurrentDate';
 
 const SIDEBAR_WIDTH = 192;
 const ZOOM_SCALE_MIN = 0.5;
@@ -53,9 +54,9 @@ export function TimelineSyncProvider({
   const [zoomScale, setZoomScale] = useState(1);
   const [hasScrolledToToday, setHasScrolledToToday] = useState(false);
   const [syncData, setSyncData] = useState<{
-    phases: { start_date: string; end_date: string }[];
+    phases: { id: number; start_date: string; end_date: string }[];
     milestones: { target_date: string }[];
-    allocations: { week_start: string }[];
+    allocations: { week_start: string; phase_id?: number | null }[];
   }>({ phases: [], milestones: [], allocations: [] });
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const peopleScrollRef = useRef<HTMLDivElement | null>(null);
@@ -81,12 +82,23 @@ export function TimelineSyncProvider({
 
   let { start: startDate, end: endDate } = getDateRange(phases, milestones);
   if (allocations.length > 0) {
-    const allocDates = allocations
-      .map((a) => new Date(a.week_start).getTime())
-      .filter((t) => !Number.isNaN(t));
-    if (allocDates.length > 0) {
-      const minAlloc = new Date(Math.min(...allocDates));
-      const maxAlloc = new Date(Math.max(...allocDates));
+    const phaseMap = new Map(phases.map((p) => [p.id, p]));
+    const dates: number[] = [];
+    for (const a of allocations) {
+      const phase = a.phase_id ? phaseMap.get(a.phase_id) : null;
+      if (phase?.start_date && phase?.end_date) {
+        const ps = new Date(phase.start_date).getTime();
+        const pe = new Date(phase.end_date).getTime();
+        if (!Number.isNaN(ps)) dates.push(ps);
+        if (!Number.isNaN(pe)) dates.push(pe);
+      } else {
+        const t = new Date(a.week_start).getTime();
+        if (!Number.isNaN(t)) dates.push(t);
+      }
+    }
+    if (dates.length > 0) {
+      const minAlloc = new Date(Math.min(...dates));
+      const maxAlloc = new Date(Math.max(...dates));
       if (minAlloc.getTime() < startDate.getTime()) startDate = minAlloc;
       if (maxAlloc.getTime() > endDate.getTime()) endDate = maxAlloc;
     }
@@ -99,11 +111,7 @@ export function TimelineSyncProvider({
   const columnWidth = baseColumnWidth * zoomScale;
   const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) || 90;
 
-  const today = useMemo(() => {
-    const t = new Date();
-    t.setHours(0, 0, 0, 0);
-    return t;
-  }, []);
+  const { date: today } = useCurrentDate();
 
   const scrollToTodayOffset = useMemo(() => {
     const startTime = startDate.getTime();

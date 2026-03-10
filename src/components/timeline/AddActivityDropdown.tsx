@@ -28,7 +28,7 @@ const ACTIVITY_TEMPLATES: Record<PhaseType, string[]> = {
 
 const PHASE_LABELS: Record<PhaseType, string> = {
   explore: 'Explore',
-  shape: 'Shape',
+  shape: 'Concept',
   build: 'Build',
   spin_out: 'Spin out',
   support: 'Support',
@@ -96,14 +96,11 @@ export function AddActivityDropdown({
     <div ref={containerRef} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`flex items-center justify-center rounded border border-dashed border-zinc-200 text-zinc-400 hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-600 ${compact ? 'h-5 w-5 p-0' : 'gap-1 px-2 py-0.5 text-xs'}`}
+        className="flex items-center justify-center gap-1 rounded border border-dashed border-zinc-200 px-2 py-0.5 text-xs text-zinc-400 hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-600"
         title="Add activity"
       >
         {compact ? (
-          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
+          <span className="text-xs">+ Add activity</span>
         ) : (
           '+ Activity'
         )}

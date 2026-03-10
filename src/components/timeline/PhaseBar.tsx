@@ -37,10 +37,9 @@ function offsetToDate(offset: number, startDate: Date, totalDays: number): Date 
   return new Date(startDate.getTime() + (offset / 100) * totalMs);
 }
 
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  return parts[0]?.slice(0, 2).toUpperCase() || '?';
+function getFirstName(name: string): string {
+  const first = name.trim().split(/\s+/)[0];
+  return first || name || '?';
 }
 
 export function PhaseBar({
@@ -125,7 +124,7 @@ export function PhaseBar({
     phase.phase === 'explore'
       ? 'Explore'
       : phase.phase === 'shape'
-        ? 'Shape'
+        ? 'Concept'
         : phase.phase === 'build'
           ? 'Build'
           : phase.phase === 'spin_out'
@@ -162,23 +161,18 @@ export function PhaseBar({
         {phaseLabel}
         {assignedPeople.length > 0 && (
           <span className="flex shrink-0 items-center gap-1">
-            {assignedPeople.slice(0, 3).map((p) => (
-              <span
-                key={p.id}
-                className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-medium ${isPause ? 'bg-zinc-300/80 text-zinc-700' : 'bg-white/30 text-white'}`}
-                title={p.name}
-              >
-                {getInitials(p.name)}
-              </span>
-            ))}
-            {assignedPeople.length > 3 && (
-              <span
-                className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-medium ${isPause ? 'bg-zinc-300/80 text-zinc-700' : 'bg-white/30 text-white'}`}
-                title={assignedPeople.slice(3).map((e) => e.name).join(', ')}
-              >
-                +{assignedPeople.length - 3}
-              </span>
-            )}
+            {assignedPeople.map((p) => {
+              const isSmall = assignedPeople.length >= 5;
+              return (
+                <span
+                  key={p.id}
+                  className={`flex max-w-12 items-center justify-center overflow-hidden rounded-full px-1.5 font-medium ${isSmall ? 'h-3 min-w-3 text-[8px]' : 'h-4 min-w-4 text-[9px]'} ${isPause ? 'bg-zinc-300/80 text-zinc-700' : 'bg-white/30 text-white'}`}
+                  title={p.name}
+                >
+                  <span className="truncate">{getFirstName(p.name)}</span>
+                </span>
+              );
+            })}
           </span>
         )}
       </span>

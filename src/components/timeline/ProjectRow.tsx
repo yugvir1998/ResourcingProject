@@ -12,7 +12,6 @@ import { PhaseBar } from './PhaseBar';
 import { ActivityBar } from './ActivityBar';
 import { MilestoneMarker } from './MilestoneMarker';
 import { PhasePeopleCards } from './PhasePeopleCards';
-import { AddActivityDropdown } from './AddActivityDropdown';
 
 const PHASE_TYPES = ['explore', 'shape', 'build', 'spin_out', 'support'] as const;
 const PHASE_COLORS: Record<string, string> = {
@@ -25,7 +24,7 @@ const PHASE_COLORS: Record<string, string> = {
 };
 const PHASE_LABELS: Record<string, string> = {
   explore: 'Explore',
-  shape: 'Shape',
+  shape: 'Concept',
   build: 'Build',
   spin_out: 'Spin out',
   support: 'Support',
@@ -33,17 +32,16 @@ const PHASE_LABELS: Record<string, string> = {
 };
 const PHASE_ABBREV: Record<string, string> = {
   explore: 'Exp',
-  shape: 'Sh',
+  shape: 'C',
   build: 'Bu',
   spin_out: 'Spin',
   support: 'Sup',
   pause: 'Pau',
 };
 
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  return parts[0]?.slice(0, 2).toUpperCase() || '?';
+function getFirstName(name: string): string {
+  const first = name.trim().split(/\s+/)[0];
+  return first || name || '?';
 }
 function getMilestoneLabel(m: HiringMilestone): string {
   if (m.label && m.label.trim()) return m.label.trim();
@@ -190,10 +188,10 @@ export function ProjectRow({
                         {visibleEmployees.map((emp) => (
                           <div
                             key={emp.id}
-                            className={`flex h-6 w-6 items-center justify-center rounded-full ${avatarClass}`}
+                            className={`flex h-6 min-w-6 max-w-14 items-center justify-center rounded-full px-1.5 ${avatarClass}`}
                             title={emp.name}
                           >
-                            <span className="text-[11px] font-medium">{getInitials(emp.name)}</span>
+                            <span className="truncate text-[11px] font-medium">{getFirstName(emp.name)}</span>
                           </div>
                         ))}
                         {remainingCount > 0 && (
@@ -289,33 +287,6 @@ export function ProjectRow({
           });
         })()}
       </div>
-      {onActivityAdd && (
-        <div className="relative flex h-7 items-center">
-          {sortedPhases
-            .filter((phase) => phase.phase !== 'pause')
-            .map((phase) => {
-              const leftPct = dateToOffset(phase.start_date, startDate, totalDays);
-              return (
-                <div
-                  key={phase.id}
-                  className="absolute flex items-center"
-                  style={{ left: `calc(${leftPct}% + 8px)` }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <AddActivityDropdown
-                    phaseId={phase.id}
-                    phaseType={phase.phase as PhaseType}
-                    phaseStartDate={phase.start_date}
-                    phaseEndDate={phase.end_date}
-                    onAdd={onActivityAdd}
-                    onAddPause={onAddPause}
-                    compact
-                  />
-                </div>
-              );
-            })}
-        </div>
-      )}
       {sortedPhases
         .filter((phase) => phase.phase !== 'pause')
         .map((phase) => {
@@ -350,7 +321,7 @@ export function ProjectRow({
         );
       })}
       {showPeople && (
-        <div className="relative flex h-8 min-h-8 items-center">
+        <div className="relative flex min-h-24 items-start pt-2 pb-2">
           {sortedPhases
             .filter((phase) => phase.phase !== 'pause')
             .map((phase) => {
@@ -374,6 +345,8 @@ export function ProjectRow({
                   onUpdate={onAllocationUpdate}
                   onRemove={onAllocationRemove}
                   onRefresh={onRefresh}
+                  onActivityAdd={onActivityAdd}
+                  onAddPause={onAddPause}
                 />
               </div>
             );

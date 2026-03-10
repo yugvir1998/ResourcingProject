@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   DndContext,
   DragEndEvent,
@@ -12,6 +13,70 @@ import { arrayMove, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { Venture, VenturePhase, HiringMilestone, Employee, Allocation, PhaseActivity } from '@/types';
+
+function HiddenVenturesDropdown({
+  ventures,
+  unhidingId,
+  onUnhide,
+  onClose,
+  anchorRef,
+}: {
+  ventures: Venture[];
+  unhidingId: number | null;
+  onUnhide: (id: number) => void;
+  onClose: () => void;
+  anchorRef: React.RefObject<HTMLButtonElement | null>;
+}) {
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target) &&
+        anchorRef.current &&
+        !anchorRef.current.contains(target)
+      ) {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [anchorRef, onClose]);
+
+  const rect = anchorRef.current?.getBoundingClientRect();
+  if (!rect) return null;
+
+  return (
+    <div
+      ref={dropdownRef}
+      className="fixed z-50 min-w-[200px] rounded-lg border border-zinc-200 bg-white py-1 shadow-lg"
+      style={{
+        left: rect.left,
+        top: rect.bottom + 4,
+      }}
+    >
+      <div className="px-2 py-1.5 text-[10px] font-medium uppercase text-zinc-400">
+        Hidden projects
+      </div>
+      {ventures.map((v) => (
+        <button
+          key={v.id}
+          type="button"
+          onClick={() => onUnhide(v.id)}
+          disabled={unhidingId === v.id}
+          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+        >
+          <span className="truncate">{v.name}</span>
+          <span className="shrink-0 text-xs text-zinc-500">
+            {unhidingId === v.id ? 'Adding…' : 'Unhide'}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function SortableVentureRow({
   venture,
@@ -54,7 +119,6 @@ import { TimeAxis, getColumnWidth, getDateRange, getGridTotalWidth, getMonthsBet
 import { ProjectRow } from './timeline/ProjectRow';
 import { ProjectPanel } from './timeline/ProjectPanel';
 import { MilestoneModal } from './timeline/MilestoneModal';
-import { PeopleView } from './timeline/PeopleView';
 import { ImpactPanel } from './ImpactPanel';
 import { useToast } from './Toast';
 import { useTimelineSyncOptional } from '@/contexts/TimelineSyncContext';
@@ -78,8 +142,9 @@ export function TimelineView(props?: TimelineViewProps) {
   const [expandedPhaseIds, setExpandedPhaseIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showPeople, setShowPeople] = useState(false);
-  const [showPeopleView, setShowPeopleView] = useState(false);
+  const [showHiddenDropdown, setShowHiddenDropdown] = useState(false);
+  const [unhidingId, setUnhidingId] = useState<number | null>(null);
+  const showHiddenButtonRef = useRef<HTMLButtonElement>(null);
   const [impactPanelOpen, setImpactPanelOpen] = useState(false);
   const [impactInitialMessage, setImpactInitialMessage] = useState<string | null>(null);
   const [zoom] = useState<ZoomLevel>('month');
@@ -128,6 +193,66 @@ export function TimelineView(props?: TimelineViewProps) {
     [toast]
   );
 
+  const applyTimelineTemplate = useCallback(async (ventureId: number) => {
+    const res = await fetch(`/api/ventures/${ventureId}/apply-timeline-template`, { method: 'POST' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.hint ? `${data.error || 'Failed'}. ${data.hint}` : data.error || 'Failed to apply template');
+    }
+    const today = new Date();
+    const milestoneDate = new Date(today);
+    milestoneDate.setDate(milestoneDate.getDate() + 90);
+    await fetch('/api/hiring-milestones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        venture_id: ventureId,
+        role_type: 'other',
+        label: 'Milestone',
+        target_date: milestoneDate.toISOString().slice(0, 10),
+      }),
+    });
+  }, []);
+
+  const handleUnhide = useCallback(
+    async (ventureId: number) => {
+      setUnhidingId(ventureId);
+      try {
+        const res = await fetch(`/api/ventures/${ventureId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeline_visible: true }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          toast.show(data.error || 'Failed to add back');
+          return;
+        }
+        const phasesRes = await fetch(`/api/venture-phases?ventureId=${ventureId}`);
+        const phases = await phasesRes.json();
+        if (Array.isArray(phases) && phases.length === 0) {
+          try {
+            await applyTimelineTemplate(ventureId);
+          } catch (err) {
+            toast.show(err instanceof Error ? err.message : 'Failed to apply template');
+            return;
+          }
+        }
+        setVentures((prev) =>
+          prev.map((v) => (v.id === ventureId ? { ...data, timeline_visible: true } : v))
+        );
+        setShowHiddenDropdown(false);
+        toast.show('Added back to timeline');
+        fetchData();
+      } catch (err) {
+        toast.show(err instanceof Error ? err.message : 'Something went wrong');
+      } finally {
+        setUnhidingId(null);
+      }
+    },
+    [toast, applyTimelineTemplate]
+  );
+
   const timelineSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
@@ -149,7 +274,7 @@ export function TimelineView(props?: TimelineViewProps) {
       aRes.json(),
       eRes.json(),
     ]);
-    const list = Array.isArray(vData) ? vData.filter((x: Venture) => x.timeline_visible !== false) : [];
+    const list = Array.isArray(vData) ? vData : [];
     setVentures(list);
     setPhases(pData || []);
     setPhaseActivities(paData || []);
@@ -171,6 +296,11 @@ export function TimelineView(props?: TimelineViewProps) {
         a.backlog_priority - b.backlog_priority ||
         a.name.localeCompare(b.name)
     );
+  const hiddenVentures = ventures.filter(
+    (v) =>
+      (v.status === 'backlog' || v.status === 'active') &&
+      v.timeline_visible !== true
+  );
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
@@ -605,7 +735,7 @@ export function TimelineView(props?: TimelineViewProps) {
 
   const RESUME_PHASE_LABELS: Record<string, string> = {
     explore: 'Explore',
-    shape: 'Shape',
+    shape: 'Concept',
     build: 'Build',
     spin_out: 'Spin out',
     support: 'Support',
@@ -697,25 +827,39 @@ export function TimelineView(props?: TimelineViewProps) {
             </div>
           )}
           <button
-            onClick={() => {
-              const next = !showPeopleView;
-              setShowPeopleView(next);
-              setShowPeople(next);
-            }}
-            className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${
-              showPeopleView
-                ? 'border-amber-300 bg-amber-50 text-amber-800'
-                : 'border-zinc-200 text-zinc-600 hover:bg-zinc-50'
-            }`}
-          >
-            {showPeopleView ? 'People view on' : 'People view'}
-          </button>
-          <button
             onClick={handleAnalyzeImpact}
             className="rounded-md border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
           >
             Analyze impact
           </button>
+          {hiddenVentures.length > 0 && (
+            <div className="relative">
+              <button
+                ref={showHiddenButtonRef}
+                type="button"
+                onClick={() => setShowHiddenDropdown((o) => !o)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                Show hidden ({hiddenVentures.length})
+              </button>
+              {showHiddenDropdown &&
+                typeof document !== 'undefined' &&
+                createPortal(
+                  <HiddenVenturesDropdown
+                    ventures={hiddenVentures}
+                    unhidingId={unhidingId}
+                    onUnhide={handleUnhide}
+                    onClose={() => setShowHiddenDropdown(false)}
+                    anchorRef={showHiddenButtonRef}
+                  />,
+                  document.body
+                )}
+            </div>
+          )}
           <button
             onClick={() => setShowAddModal(true)}
             className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2"
@@ -805,7 +949,7 @@ export function TimelineView(props?: TimelineViewProps) {
               const phaseTypes = ['explore', 'shape', 'build', 'spin_out', 'support', 'pause'] as const;
               const phaseLabels: Record<string, string> = {
                 explore: 'Explore',
-                shape: 'Shape',
+                shape: 'Concept',
                 build: 'Build',
                 spin_out: 'Spin out',
                 support: 'Support',
@@ -908,7 +1052,7 @@ export function TimelineView(props?: TimelineViewProps) {
                                 const isCurrentPhase = currentPhase?.id === phase.id;
                                 const abbrev: Record<string, string> = {
                                   explore: 'E',
-                                  shape: 'Sh',
+                                  shape: 'C',
                                   build: 'B',
                                   spin_out: 'O',
                                   support: 'Su',
@@ -946,11 +1090,6 @@ export function TimelineView(props?: TimelineViewProps) {
                                   (a, b) => a.sort_order - b.sort_order
                                 )
                               : [];
-                            const phaseAllocs = allocations.filter((a) => a.venture_id === v.id && a.phase_id === phase.id);
-                            const peopleNames = phaseAllocs
-                              .map((a) => employees.find((e) => e.id === a.employee_id)?.name)
-                              .filter(Boolean)
-                              .join(', ');
                             return (
                               <div key={phase.id}>
                                 {activities.map((act) => (
@@ -958,11 +1097,6 @@ export function TimelineView(props?: TimelineViewProps) {
                                     <span className="truncate text-xs text-zinc-600">{act.name}</span>
                                   </div>
                                 ))}
-                                {showPeople && (phaseAllocs.length > 0 || employees.some((e) => !phaseAllocs.some((a) => a.employee_id === e.id))) && (
-                                  <div className="flex h-8 items-center border-b border-zinc-100 pl-5 pr-2">
-                                    <span className="truncate text-xs text-zinc-500">{peopleNames || '\u00A0'}</span>
-                                  </div>
-                                )}
                               </div>
                             );
                           })}
@@ -999,7 +1133,7 @@ export function TimelineView(props?: TimelineViewProps) {
                         endDate={endDate}
                         totalDays={totalDays}
                         gridWidth={gridTotalWidth}
-                        showPeople={showPeople}
+                        showPeople={true}
                         expandedPhaseIds={expandedPhaseIds}
                         onExpandPhase={(id) => setExpandedPhaseIds((prev) => {
                           const next = new Set(prev);
@@ -1030,18 +1164,6 @@ export function TimelineView(props?: TimelineViewProps) {
             })}
               </SortableContext>
             </DndContext>
-            {showPeopleView && (
-              <PeopleView
-                ventures={ventures}
-                phases={phases}
-                allocations={allocations}
-                employees={employees}
-                startDate={startDate}
-                endDate={endDate}
-                totalDays={totalDays}
-                gridWidth={gridTotalWidth}
-              />
-            )}
             {(() => {
               const today = new Date();
               today.setHours(0, 0, 0, 0);

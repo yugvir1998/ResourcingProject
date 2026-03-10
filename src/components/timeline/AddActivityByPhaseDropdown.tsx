@@ -5,7 +5,7 @@ import type { VenturePhase, PhaseType } from '@/types';
 
 const PHASE_LABELS: Record<PhaseType, string> = {
   explore: 'Explore',
-  shape: 'Shape',
+  shape: 'Concept',
   build: 'Build',
   spin_out: 'Spin out',
   support: 'Support',

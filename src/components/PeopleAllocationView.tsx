@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import type { Venture, VenturePhase, Allocation, Employee } from '@/types';
 import {
   getDateRange,
@@ -16,7 +15,6 @@ import {
 import { useTimelineSyncOptional } from '@/contexts/TimelineSyncContext';
 
 const FALLBACK_WEEK_COLUMN_WIDTH = 72;
-const DROPDOWN_TIMELINE_WIDTH = 480;
 
 function getWeekStartString(d: Date): string {
   const day = d.getDay();
@@ -52,6 +50,31 @@ function getSegmentWidthPct(startWeek: string, endWeek: string, totalDays: numbe
   return (spanMs / (totalDays * 24 * 60 * 60 * 1000)) * 100;
 }
 
+function getEffectiveSpan(
+  allocation: Allocation,
+  phaseMap: Map<number, VenturePhase>,
+  viewStartTime: number,
+  viewEndTime: number
+): { start: string; end: string } | null {
+  const phase = allocation.phase_id ? phaseMap.get(allocation.phase_id) ?? null : null;
+  if (phase?.start_date && phase?.end_date) {
+    const phaseStart = new Date(phase.start_date).getTime();
+    const phaseEnd = new Date(phase.end_date).getTime();
+    if (Number.isNaN(phaseStart) || Number.isNaN(phaseEnd)) return null;
+    if (phaseEnd < viewStartTime || phaseStart > viewEndTime) return null;
+    const start = new Date(Math.max(phaseStart, viewStartTime));
+    const end = new Date(Math.min(phaseEnd, viewEndTime));
+    return {
+      start: start.toISOString().slice(0, 10),
+      end: end.toISOString().slice(0, 10),
+    };
+  }
+  const weekTime = new Date(allocation.week_start).getTime();
+  if (Number.isNaN(weekTime) || weekTime < viewStartTime || weekTime > viewEndTime) return null;
+  const weekKey = normalizeWeekKey(allocation.week_start);
+  return { start: weekKey, end: weekKey };
+}
+
 function buildAllocationSegments(
   allocations: Allocation[],
   employeeId: number,
@@ -60,44 +83,24 @@ function buildAllocationSegments(
   startTime: number,
   endTime: number
 ): AllocationSegment[] {
-  const empAllocs = allocations
-    .filter((a) => a.employee_id === employeeId)
-    .map((a) => ({
-      venture: ventureMap.get(a.venture_id) ?? ({ id: a.venture_id, name: `Venture ${a.venture_id}` } as Venture),
-      phase: a.phase_id ? phaseMap.get(a.phase_id) ?? null : null,
-      fte: a.fte_percentage,
-      weekStart: normalizeWeekKey(a.week_start),
-    }))
-    .filter((x) => {
-      const t = new Date(x.weekStart).getTime();
-      return !Number.isNaN(t) && t >= startTime && t <= endTime;
-    })
-    .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
-
   const segments: AllocationSegment[] = [];
-  const key = (v: { venture: Venture; phase: VenturePhase | null; fte: number }) =>
-    `${v.venture.id}-${v.phase?.id ?? 'n'}-${v.fte}`;
+  const empAllocs = allocations.filter((a) => a.employee_id === employeeId);
 
   for (const a of empAllocs) {
-    const k = key(a);
-    const last = segments[segments.length - 1];
-    if (last && key(last) === k) {
-      const lastWeek = new Date(last.endWeek);
-      lastWeek.setDate(lastWeek.getDate() + 7);
-      const nextWeek = a.weekStart;
-      if (lastWeek.toISOString().slice(0, 10) === nextWeek) {
-        last.endWeek = nextWeek;
-        continue;
-      }
-    }
+    const venture = ventureMap.get(a.venture_id) ?? ({ id: a.venture_id, name: `Venture ${a.venture_id}` } as Venture);
+    const phase = a.phase_id ? phaseMap.get(a.phase_id) ?? null : null;
+    const span = getEffectiveSpan(a, phaseMap, startTime, endTime);
+    if (!span) continue;
+
     segments.push({
-      venture: a.venture,
-      phase: a.phase,
-      fte: a.fte,
-      startWeek: a.weekStart,
-      endWeek: a.weekStart,
+      venture,
+      phase,
+      fte: a.fte_percentage,
+      startWeek: span.start,
+      endWeek: span.end,
     });
   }
+  segments.sort((a, b) => a.startWeek.localeCompare(b.startWeek));
   return segments;
 }
 
@@ -111,124 +114,54 @@ type AllocationSegment = {
   endWeek: string;
 };
 
-function PersonAllocationDropdown({
-  emp,
-  breakdown,
-  weekTotals,
-  weeks,
+function PersonAllocationExpandableRow({
+  segments,
   startDate,
-  endDate,
   totalDays,
-  allocations,
-  ventureMap,
-  phaseMap,
-  dropdownRect,
-  onClose,
+  gridWidth,
 }: {
-  emp: Employee;
-  breakdown: Map<string, VentureBreakdown[]>;
-  weekTotals: Map<string, number>;
-  weeks: Date[];
+  segments: AllocationSegment[];
   startDate: Date;
-  endDate: Date;
   totalDays: number;
-  allocations: Allocation[];
-  ventureMap: Map<number, Venture>;
-  phaseMap: Map<number, VenturePhase>;
-  dropdownRect: DOMRect;
-  onClose: () => void;
+  gridWidth: number;
 }) {
-  const startTime = startDate.getTime();
-  const endTime = endDate.getTime();
-  const segments = buildAllocationSegments(
-    allocations,
-    emp.id,
-    ventureMap,
-    phaseMap,
-    startTime,
-    endTime
-  );
+  if (segments.length === 0) return null;
 
   return (
-    <div
-      data-person-allocation-dropdown
-      className="fixed z-[101] overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-lg"
-      style={{
-        left: dropdownRect.left,
-        top: dropdownRect.bottom + 4,
-        width: DROPDOWN_TIMELINE_WIDTH,
-        maxHeight: 360,
-      }}
-      onWheel={(e) => e.stopPropagation()}
-    >
-      <div className="overflow-y-auto p-3" style={{ maxHeight: 360 }}>
-        <p className="mb-3 text-sm font-semibold text-zinc-900">{emp.name}</p>
-        {breakdown.size === 0 ? (
-          <p className="text-sm text-zinc-500">No allocations</p>
-        ) : (
-          <div className="space-y-3">
-            {/* Total % row per week */}
-            <div>
-              <p className="mb-1.5 text-xs font-medium text-zinc-500">Total capacity</p>
-              <div className="relative h-6 rounded bg-zinc-100" style={{ width: DROPDOWN_TIMELINE_WIDTH - 24 }}>
-                {weeks.map((w) => {
-                  const weekStart = getWeekStartString(w);
-                  const total = weekTotals.get(weekStart) ?? 0;
-                  const colorClass = getCellColor(total);
-                  const leftPct = dateToOffset(weekStart, startDate, totalDays);
-                  const weekWidthPct = (7 / totalDays) * 100;
-                  return (
-                    <div
-                      key={weekStart}
-                      className={`absolute top-0.5 bottom-0.5 flex items-center justify-center rounded px-0.5 text-[10px] font-medium ${colorClass}`}
-                      style={{
-                        left: `${leftPct}%`,
-                        width: `${Math.min(weekWidthPct, 100 - leftPct)}%`,
-                        minWidth: 12,
-                      }}
-                      title={`${weekStart}: ${total}%`}
-                    >
-                      {total}%
-                    </div>
-                  );
-                })}
-              </div>
+    <>
+      {segments.map((seg, idx) => {
+        const leftPct = dateToOffset(seg.startWeek, startDate, totalDays);
+        const widthPct = getSegmentWidthPct(seg.startWeek, seg.endWeek, totalDays);
+        const phaseLabel = seg.phase ? ` (${seg.phase.phase.replace(/_/g, ' ')})` : '';
+        return (
+          <div
+            key={`${seg.venture.id}-${seg.startWeek}-${idx}`}
+            className="flex border-b border-zinc-100 bg-zinc-50/50 last:border-b-0"
+          >
+            <div className="sticky left-0 z-10 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50/95 px-4 py-1.5 pl-8">
+              <span
+                className="truncate text-xs text-zinc-700"
+                title={`${seg.venture.name}${phaseLabel} - ${seg.fte}%`}
+              >
+                {seg.venture.name} - {seg.fte}%
+              </span>
             </div>
-            {/* Project bars */}
-            <div>
-              <p className="mb-1.5 text-xs font-medium text-zinc-500">By project</p>
-              <div className="space-y-2">
-                {segments.map((seg, idx) => {
-                  const leftPct = dateToOffset(seg.startWeek, startDate, totalDays);
-                  const widthPct = getSegmentWidthPct(seg.startWeek, seg.endWeek, totalDays);
-                  const phaseLabel = seg.phase ? ` (${seg.phase.phase.replace(/_/g, ' ')})` : '';
-                  return (
-                    <div key={`${seg.venture.id}-${seg.startWeek}-${idx}`} className="flex items-center gap-2">
-                      <span className="w-28 shrink-0 truncate text-xs text-zinc-700" title={`${seg.venture.name}${phaseLabel} - ${seg.fte}%`}>
-                        {seg.venture.name}{phaseLabel} - {seg.fte}%
-                      </span>
-                      <div
-                        className="relative h-4 flex-1 rounded bg-zinc-100"
-                        style={{ width: DROPDOWN_TIMELINE_WIDTH - 24 - 112 }}
-                      >
-                        <div
-                          className="absolute top-0.5 bottom-0.5 rounded bg-zinc-400"
-                          style={{
-                            left: `${leftPct}%`,
-                            width: `${Math.min(widthPct, 100 - leftPct)}%`,
-                            minWidth: 4,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+            <div className="relative flex-1 min-w-0 py-1.5" style={{ width: gridWidth }}>
+              <div className="relative h-4 rounded bg-zinc-200">
+                <div
+                  className="absolute top-0.5 bottom-0.5 rounded bg-zinc-500"
+                  style={{
+                    left: `${leftPct}%`,
+                    width: `${Math.min(widthPct, 100 - leftPct)}%`,
+                    minWidth: 4,
+                  }}
+                />
               </div>
             </div>
           </div>
-        )}
-      </div>
-    </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -239,21 +172,10 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
   const [ventures, setVentures] = useState<Venture[]>([]);
   const [milestones, setMilestones] = useState<{ target_date: string }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [openDropdownId, setOpenDropdownId] = useState<number | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const dropdownButtonRef = useRef<HTMLButtonElement>(null);
-  const [dropdownRect, setDropdownRect] = useState<DOMRect | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const hasScrolledToTodayRef = useRef(false);
   const sync = useTimelineSyncOptional();
-
-  useEffect(() => {
-    if (openDropdownId && dropdownButtonRef.current) {
-      setDropdownRect(dropdownButtonRef.current.getBoundingClientRect());
-    } else {
-      setDropdownRect(null);
-    }
-  }, [openDropdownId]);
 
   const fetchData = async () => {
     const [aRes, eRes, pRes, vRes, mRes] = await Promise.all([
@@ -282,29 +204,28 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
     fetchData();
   }, [refreshTrigger]);
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (dropdownRef.current?.contains(target)) return;
-      if (target.closest('[data-person-allocation-dropdown]')) return;
-      setOpenDropdownId(null);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   const phaseMap = new Map(phases.map((p) => [p.id, p]));
   const ventureMap = new Map(ventures.map((v) => [v.id, v]));
 
   let { start: startDate, end: endDate } = getDateRange(phases, milestones);
-  // Expand range to include any week that has allocations (only when not using sync)
+  // Expand range to include allocations and their phase spans (only when not using sync)
   if (!sync && allocations.length > 0) {
-    const allocDates = allocations
-      .map((a) => new Date(a.week_start).getTime())
-      .filter((t) => !Number.isNaN(t));
-    if (allocDates.length > 0) {
-      const minAlloc = new Date(Math.min(...allocDates));
-      const maxAlloc = new Date(Math.max(...allocDates));
+    const dates: number[] = [];
+    for (const a of allocations) {
+      const phase = a.phase_id ? phaseMap.get(a.phase_id) ?? null : null;
+      if (phase?.start_date && phase?.end_date) {
+        const ps = new Date(phase.start_date).getTime();
+        const pe = new Date(phase.end_date).getTime();
+        if (!Number.isNaN(ps)) dates.push(ps);
+        if (!Number.isNaN(pe)) dates.push(pe);
+      } else {
+        const t = new Date(a.week_start).getTime();
+        if (!Number.isNaN(t)) dates.push(t);
+      }
+    }
+    if (dates.length > 0) {
+      const minAlloc = new Date(Math.min(...dates));
+      const maxAlloc = new Date(Math.max(...dates));
       if (minAlloc.getTime() < startDate.getTime()) startDate = minAlloc;
       if (maxAlloc.getTime() > endDate.getTime()) endDate = maxAlloc;
     }
@@ -323,7 +244,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
     (sync?.totalDays) ??
     (Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) || 90);
 
-  // Build per-employee per-week totals
+  // Build per-employee per-week totals (phase-based: use phase dates when available)
   const byEmployeeAndWeek = new Map<number, Map<string, number>>();
   const byEmployeeAndWeekBreakdown = new Map<number, Map<string, VentureBreakdown[]>>();
 
@@ -334,6 +255,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
 
   const startTime = startDate.getTime();
   const endTime = endDate.getTime();
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
 
   for (const a of allocations) {
     const phase = a.phase_id ? phaseMap.get(a.phase_id) ?? null : null;
@@ -341,10 +263,21 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
       ventureMap.get(a.venture_id) ??
       ({ id: a.venture_id, name: `Venture ${a.venture_id}` } as Venture);
 
-    const weekTime = new Date(a.week_start).getTime();
-    if (Number.isNaN(weekTime) || weekTime < startTime || weekTime > endTime) continue;
+    let spanStart: number;
+    let spanEnd: number;
+    if (phase?.start_date && phase?.end_date) {
+      spanStart = new Date(phase.start_date).getTime();
+      spanEnd = new Date(phase.end_date).getTime();
+      if (Number.isNaN(spanStart) || Number.isNaN(spanEnd) || spanEnd < startTime || spanStart > endTime) continue;
+      spanStart = Math.max(spanStart, startTime);
+      spanEnd = Math.min(spanEnd, endTime);
+    } else {
+      const weekTime = new Date(a.week_start).getTime();
+      if (Number.isNaN(weekTime) || weekTime < startTime || weekTime > endTime) continue;
+      spanStart = weekTime;
+      spanEnd = weekTime;
+    }
 
-    const weekKey = normalizeWeekKey(a.week_start);
     let empWeek = byEmployeeAndWeek.get(a.employee_id);
     let empBreakdown = byEmployeeAndWeekBreakdown.get(a.employee_id);
     if (!empWeek) {
@@ -355,12 +288,19 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
       empBreakdown = new Map();
       byEmployeeAndWeekBreakdown.set(a.employee_id, empBreakdown);
     }
-    empWeek.set(weekKey, (empWeek.get(weekKey) ?? 0) + a.fte_percentage);
-    if (!empBreakdown.has(weekKey)) empBreakdown.set(weekKey, []);
-    const list = empBreakdown.get(weekKey)!;
-    const existing = list.find((x) => x.venture.id === venture.id);
-    if (existing) existing.fte += a.fte_percentage;
-    else list.push({ venture, phase, fte: a.fte_percentage });
+
+    for (const w of weeks) {
+      const weekStart = getWeekStartString(w);
+      const weekStartTime = new Date(weekStart).getTime();
+      const weekEndTime = weekStartTime + weekMs - 1;
+      if (weekEndTime < spanStart || weekStartTime > spanEnd) continue;
+      empWeek.set(weekStart, (empWeek.get(weekStart) ?? 0) + a.fte_percentage);
+      if (!empBreakdown.has(weekStart)) empBreakdown.set(weekStart, []);
+      const list = empBreakdown.get(weekStart)!;
+      const existing = list.find((x) => x.venture.id === venture.id && x.phase?.id === phase?.id);
+      if (existing) existing.fte += a.fte_percentage;
+      else list.push({ venture, phase, fte: a.fte_percentage });
+    }
   }
 
   // Build per-employee per-month average (for month/quarter view)
@@ -552,20 +492,23 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
             {/* Data rows */}
             {employees.map((emp) => {
               const weekTotals = byEmployeeAndWeek.get(emp.id) ?? new Map();
-              const breakdown = byEmployeeAndWeekBreakdown.get(emp.id) ?? new Map();
-              const isOpen = openDropdownId === emp.id;
+              const isExpanded = expandedId === emp.id;
+              const segments = buildAllocationSegments(
+                allocations,
+                emp.id,
+                ventureMap,
+                phaseMap,
+                startDate.getTime(),
+                endDate.getTime()
+              );
 
               return (
-                <div
-                  key={emp.id}
-                  className="flex border-b border-zinc-100 last:border-b-0"
-                >
-                  <div className="relative sticky left-0 z-10 w-48 shrink-0 border-r border-zinc-200 bg-white px-4 py-2">
-                    <div className="relative" ref={isOpen ? dropdownRef : undefined}>
+                <div key={emp.id} className="last:[&>*:last-child]:border-b-0">
+                  <div className="flex border-b border-zinc-100">
+                    <div className="sticky left-0 z-10 w-48 shrink-0 border-r border-zinc-200 bg-white px-4 py-2">
                       <button
-                        ref={isOpen ? dropdownButtonRef : undefined}
                         type="button"
-                        onClick={() => setOpenDropdownId(isOpen ? null : emp.id)}
+                        onClick={() => setExpandedId(isExpanded ? null : emp.id)}
                         className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm font-medium text-zinc-800 hover:bg-zinc-50"
                       >
                         <span className="truncate">{emp.name}</span>
@@ -577,40 +520,12 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
                           fill="none"
                           stroke="currentColor"
                           strokeWidth="2"
-                          className={`shrink-0 text-zinc-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                          className={`shrink-0 text-zinc-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                         >
                           <polyline points="6 9 12 15 18 9" />
                         </svg>
                       </button>
-                      {isOpen &&
-                        dropdownRect &&
-                        typeof document !== 'undefined' &&
-                        createPortal(
-                          <>
-                            <div
-                              className="fixed inset-0 z-[100] bg-black/20"
-                              onClick={() => setOpenDropdownId(null)}
-                              aria-hidden="true"
-                            />
-                            <PersonAllocationDropdown
-                              emp={emp}
-                              breakdown={breakdown}
-                              weekTotals={weekTotals}
-                              weeks={weeks}
-                              startDate={startDate}
-                              endDate={endDate}
-                              totalDays={totalDays}
-                              allocations={allocations}
-                              ventureMap={ventureMap}
-                              phaseMap={phaseMap}
-                              dropdownRect={dropdownRect}
-                              onClose={() => setOpenDropdownId(null)}
-                            />
-                          </>,
-                          document.body
-                        )}
                     </div>
-                  </div>
                   <div className="flex" style={{ width: gridWidth }}>
                     {displayLevel === 'quarters' &&
                       quarters.map(({ q, y }) => {
@@ -692,6 +607,15 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
                         );
                       })}
                   </div>
+                  </div>
+                  {isExpanded && (
+                    <PersonAllocationExpandableRow
+                      segments={segments}
+                      startDate={startDate}
+                      totalDays={totalDays}
+                      gridWidth={gridWidth}
+                    />
+                  )}
                 </div>
               );
             })}

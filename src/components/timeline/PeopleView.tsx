@@ -85,9 +85,7 @@ export function PeopleView({
   if (peopleRows.length === 0) {
     return (
       <div className="flex min-w-max border-t border-zinc-200 pt-1">
-        <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50 px-2 py-3">
-          <p className="text-xs text-zinc-500">People</p>
-        </div>
+        <div className="sticky left-0 z-20 w-48 shrink-0" aria-hidden />
         <div className="flex shrink-0 items-center bg-zinc-50 px-4" style={{ width: gridWidth }}>
           <p className="text-sm text-zinc-500">No people allocated yet. Add team members to phases to see capacity here.</p>
         </div>
@@ -114,9 +112,7 @@ export function PeopleView({
             key={emp.id}
             className={`flex min-w-max ${idx > 0 ? 'border-t border-zinc-100' : ''}`}
           >
-            <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50 px-2 py-2">
-              <span className="truncate text-sm font-medium text-zinc-800">{emp.name}</span>
-            </div>
+            <div className="sticky left-0 z-20 w-48 shrink-0" aria-hidden />
             <div
               className="relative h-8 shrink-0"
               style={{ width: gridWidth }}

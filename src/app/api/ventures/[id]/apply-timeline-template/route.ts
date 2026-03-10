@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/supabase';
 
 const PHASES = ['explore', 'shape', 'build', 'spin_out', 'support'] as const;
-// Explore 2mo, Shape 2mo, Build 2mo, Spin out 2mo, Support 6mo
+// Explore 2mo, Concept 2mo, Build 2mo, Spin out 2mo, Support 6mo
 const PHASE_DAYS = [60, 60, 60, 60, 180];
 
 export async function POST(

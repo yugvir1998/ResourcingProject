@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import type { VenturePhase, Allocation } from '@/types';
+import type { VenturePhase, Allocation, PhaseType } from '@/types';
+import { AddActivityDropdown } from './AddActivityDropdown';
 
 interface PhasePeopleCardsProps {
   phase: VenturePhase;
@@ -14,6 +15,13 @@ interface PhasePeopleCardsProps {
   onUpdate?: (id: number, updates: { fte_percentage?: number; phase_id?: number }) => void;
   onRemove?: (id: number) => void;
   onRefresh?: () => void;
+  onActivityAdd?: (
+    venturePhaseId: number,
+    name: string,
+    startDate: string,
+    endDate: string
+  ) => void;
+  onAddPause?: (afterPhaseId: number) => void;
 }
 
 export function PhasePeopleCards({
@@ -26,6 +34,8 @@ export function PhasePeopleCards({
   onUpdate,
   onRemove,
   onRefresh,
+  onActivityAdd,
+  onAddPause,
 }: PhasePeopleCardsProps) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingFte, setEditingFte] = useState<number>(0);
@@ -45,7 +55,7 @@ export function PhasePeopleCards({
     setEditingId(null);
   };
 
-  if (allocations.length === 0 && availableEmployees.length === 0) return null;
+  if (allocations.length === 0 && availableEmployees.length === 0 && !onActivityAdd) return null;
 
   return (
     <div
@@ -101,6 +111,17 @@ export function PhasePeopleCards({
           ventureId={ventureId}
           phaseId={phase.id}
           onAdded={onRefresh}
+        />
+      )}
+      {onActivityAdd && (
+        <AddActivityDropdown
+          phaseId={phase.id}
+          phaseType={phase.phase as PhaseType}
+          phaseStartDate={phase.start_date}
+          phaseEndDate={phase.end_date}
+          onAdd={onActivityAdd}
+          onAddPause={onAddPause}
+          compact
         />
       )}
     </div>

@@ -4,7 +4,7 @@ import { getSupabase } from '@/lib/supabase';
 
 const PHASE_LABELS: Record<string, string> = {
   explore: 'Explore',
-  shape: 'Shape',
+  shape: 'Concept',
   build: 'Build',
   spin_out: 'Spin out',
   support: 'Support',
