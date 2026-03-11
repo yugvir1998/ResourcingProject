@@ -229,7 +229,7 @@ export function TimelineView(props?: TimelineViewProps) {
         const res = await fetch(`/api/ventures/${ventureId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ timeline_visible: true }),
+          body: JSON.stringify({ timeline_visible: true, hidden_from_venture_tracker: false }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -306,8 +306,8 @@ export function TimelineView(props?: TimelineViewProps) {
     );
   const hiddenVentures = ventures.filter(
     (v) =>
-      (v.status === 'backlog' || v.status === 'active') &&
-      v.timeline_visible !== true
+      (v.status === 'backlog' || v.status === 'active' || v.status === 'planned') &&
+      (v.timeline_visible !== true || v.hidden_from_venture_tracker === true)
   );
 
   const handleDragEnd = useCallback(

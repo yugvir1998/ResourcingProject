@@ -31,8 +31,8 @@ interface SupportVentureCardProps {
   ventureAllocations: VentureAllocation[];
   employees: { id: number; name: string }[];
   nextMilestoneDate: string | null;
-  onUpdate: (id: number, updates: Partial<Venture>) => Promise<boolean>;
-  onUpdateTeam: (ventureId: number, addEmployeeIds: number[], removeAllocationIds: number[]) => Promise<boolean>;
+  onUpdate: (id: number, updates: Partial<Venture>) => Promise<{ ok: boolean; error?: string }>;
+  onUpdateTeam: (ventureId: number, addEmployeeIds: number[], removeAllocationIds: number[]) => Promise<{ ok: boolean; error?: string }>;
   onDelete: (id: number) => Promise<boolean>;
 }
 
@@ -68,14 +68,16 @@ function SupportVentureCard({ venture, teamMembers, ventureAllocations, employee
 
   const handleSave = async () => {
     setEditError(null);
-    const ventureSuccess = await onUpdate(venture.id, {
+    const ventureResult = await onUpdate(venture.id, {
       name: editName.trim(),
       notes: editNotes.trim() || null,
       one_metric_that_matters: editOneMetric.trim() || null,
     });
-    if (!ventureSuccess) {
-      setEditError('Failed to save');
-      toast.show('Failed to save');
+    if (!ventureResult.ok) {
+      const errMsg = ventureResult.error || 'Failed to save';
+      setEditError(errMsg);
+      toast.show(errMsg);
+      if (process.env.NODE_ENV === 'development') console.error('Venture update failed:', ventureResult.error);
       return;
     }
     const currentEmpIds = new Set(ventureAllocations.map((a) => a.employee_id));
@@ -85,10 +87,12 @@ function SupportVentureCard({ venture, teamMembers, ventureAllocations, employee
       .filter((a) => !newEmpIds.has(a.employee_id))
       .map((a) => a.id);
     if (addIds.length > 0 || removeIds.length > 0) {
-      const teamSuccess = await onUpdateTeam(venture.id, addIds, removeIds);
-      if (!teamSuccess) {
-        setEditError('Failed to save team');
-        toast.show('Failed to save team');
+      const teamResult = await onUpdateTeam(venture.id, addIds, removeIds);
+      if (!teamResult.ok) {
+        const errMsg = teamResult.error || 'Failed to save team';
+        setEditError(errMsg);
+        toast.show(errMsg);
+        if (process.env.NODE_ENV === 'development') console.error('Team update failed:', teamResult.error);
         return;
       }
     }
@@ -326,19 +330,19 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
     return future[0]?.target_date ?? ventureMilestones[0]?.target_date ?? null;
   };
 
-  const updateVenture = async (id: number, updates: Partial<Venture>): Promise<boolean> => {
+  const updateVenture = async (id: number, updates: Partial<Venture>): Promise<{ ok: boolean; error?: string }> => {
     const res = await fetch(`/api/ventures/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
     });
+    const data = await res.json().catch(() => ({}));
     if (res.ok) {
-      const data = await res.json();
       setVentures((v) => v.map((x) => (x.id === id ? data : x)));
       onRefresh?.();
-      return true;
+      return { ok: true };
     }
-    return false;
+    return { ok: false, error: typeof data?.error === 'string' ? data.error : 'Failed to update venture' };
   };
 
   const deleteVenture = async (id: number): Promise<boolean> => {
@@ -355,12 +359,15 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
     ventureId: number,
     addEmployeeIds: number[],
     removeAllocationIds: number[]
-  ): Promise<boolean> => {
+  ): Promise<{ ok: boolean; error?: string }> => {
     const weekStart = getWeekStartString(new Date());
     try {
       for (const id of removeAllocationIds) {
         const res = await fetch(`/api/allocations/${id}`, { method: 'DELETE' });
-        if (!res.ok) return false;
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          return { ok: false, error: typeof data?.error === 'string' ? data.error : 'Failed to remove team member' };
+        }
       }
       for (const empId of addEmployeeIds) {
         const res = await fetch('/api/allocations', {
@@ -373,12 +380,19 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
             week_start: weekStart,
           }),
         });
-        if (!res.ok) return false;
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          return { ok: false, error: typeof data?.error === 'string' ? data.error : 'Failed to add team member' };
+        }
       }
+      const aRes = await fetch('/api/allocations');
+      const aData = await aRes.json();
+      setAllocations(Array.isArray(aData) ? aData : []);
       onRefresh?.();
-      return true;
-    } catch {
-      return false;
+      return { ok: true };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to update team';
+      return { ok: false, error: msg };
     }
   };
 
@@ -414,7 +428,7 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
       <section>
         <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold tracking-tight text-zinc-900">
           <span className="h-2 w-2 rounded-full bg-cyan-400" />
-          Support Ventures
+          Support Ventures ({ventures.length})
         </h2>
         <div className="flex flex-wrap gap-4">
           {[1, 2, 3].map((i) => (
@@ -433,7 +447,7 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
       <div className="mb-4 flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-zinc-900">
           <span className="h-2 w-2 rounded-full bg-cyan-400" />
-          Support Ventures
+          Support Ventures ({ventures.length})
         </h2>
         <button
           type="button"
@@ -663,6 +677,7 @@ function AddSupportVentureForm({
         const errMsg = typeof data?.error === 'string' ? data.error : 'Failed to add support venture';
         setError(errMsg);
         toast.show(errMsg);
+        if (process.env.NODE_ENV === 'development') console.error('Support venture POST failed:', data);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to add support venture';

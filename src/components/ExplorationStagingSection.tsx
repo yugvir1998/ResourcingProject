@@ -22,14 +22,37 @@ function getWeekStartString(d: Date): string {
   return monday.toISOString().slice(0, 10);
 }
 
+/** Get 8 week-start strings (2 months) from a given date for exploration staging allocations */
+function getWeekStartsForTwoMonths(fromDate: Date): string[] {
+  const start = new Date(fromDate);
+  start.setHours(0, 0, 0, 0);
+  const firstWeek = getWeekStartString(start);
+  const weeks: string[] = [firstWeek];
+  for (let i = 1; i < 8; i++) {
+    const next = new Date(start);
+    next.setDate(next.getDate() + 7 * i);
+    weeks.push(getWeekStartString(next));
+  }
+  return weeks;
+}
+
+interface VentureAllocation {
+  id: number;
+  employee_id: number;
+  venture_id: number;
+}
+
 interface ExplorationStagingCardProps {
   venture: Venture;
   teamMembers: { id: number; name: string }[];
-  onUpdate: (id: number, updates: Partial<Venture>) => Promise<boolean>;
+  ventureAllocations: VentureAllocation[];
+  employees: { id: number; name: string }[];
+  onUpdate: (id: number, updates: Partial<Venture>) => Promise<{ ok: boolean; error?: string }>;
+  onUpdateTeam: (ventureId: number, addEmployeeIds: number[], removeAllocationIds: number[], options?: { tentativeStartDate?: string | null }) => Promise<{ ok: boolean; error?: string }>;
   onDelete: (id: number) => Promise<boolean>;
 }
 
-function ExplorationStagingCard({ venture, teamMembers, onUpdate, onDelete }: ExplorationStagingCardProps) {
+function ExplorationStagingCard({ venture, teamMembers, ventureAllocations, employees, onUpdate, onUpdateTeam, onDelete }: ExplorationStagingCardProps) {
   const toast = useToast();
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(venture.name);
@@ -38,7 +61,14 @@ function ExplorationStagingCard({ venture, teamMembers, onUpdate, onDelete }: Ex
   const [editNotionLink, setEditNotionLink] = useState(venture.notion_link || '');
   const [editTentativeStart, setEditTentativeStart] = useState(venture.tentative_start_date || '');
   const [editDesignPartner, setEditDesignPartner] = useState(venture.design_partner || '');
+  const [editSelectedEmployeeIds, setEditSelectedEmployeeIds] = useState<number[]>([]);
   const [editError, setEditError] = useState<string | null>(null);
+
+  const toggleEmployee = (id: number) => {
+    setEditSelectedEmployeeIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `exploration-${venture.id}`,
@@ -51,7 +81,7 @@ function ExplorationStagingCard({ venture, teamMembers, onUpdate, onDelete }: Ex
 
   const handleSave = async () => {
     setEditError(null);
-    const success = await onUpdate(venture.id, {
+    const ventureResult = await onUpdate(venture.id, {
       name: editName.trim(),
       notes: editNotes.trim() || null,
       next_steps: editNextSteps.trim() || null,
@@ -59,12 +89,30 @@ function ExplorationStagingCard({ venture, teamMembers, onUpdate, onDelete }: Ex
       tentative_start_date: editTentativeStart || null,
       design_partner: editDesignPartner.trim() || null,
     });
-    if (success) {
-      setEditing(false);
-    } else {
-      setEditError('Failed to save');
-      toast.show('Failed to save');
+    if (!ventureResult.ok) {
+      const errMsg = ventureResult.error || 'Failed to save';
+      setEditError(errMsg);
+      toast.show(errMsg);
+      if (process.env.NODE_ENV === 'development') console.error('Venture update failed:', ventureResult.error);
+      return;
     }
+    const currentEmpIds = new Set(ventureAllocations.map((a) => a.employee_id));
+    const newEmpIds = new Set(editSelectedEmployeeIds);
+    const addIds = [...newEmpIds].filter((id) => !currentEmpIds.has(id));
+    const removeIds = ventureAllocations
+      .filter((a) => !newEmpIds.has(a.employee_id))
+      .map((a) => a.id);
+    if (addIds.length > 0 || removeIds.length > 0) {
+      const teamResult = await onUpdateTeam(venture.id, addIds, removeIds, { tentativeStartDate: editTentativeStart || venture.tentative_start_date });
+      if (!teamResult.ok) {
+        const errMsg = teamResult.error || 'Failed to save team';
+        setEditError(errMsg);
+        toast.show(errMsg);
+        if (process.env.NODE_ENV === 'development') console.error('Team update failed:', teamResult.error);
+        return;
+      }
+    }
+    setEditing(false);
   };
 
   const handleDelete = async () => {
@@ -99,6 +147,7 @@ function ExplorationStagingCard({ venture, teamMembers, onUpdate, onDelete }: Ex
               setEditNotionLink(venture.notion_link || '');
               setEditTentativeStart(venture.tentative_start_date || '');
               setEditDesignPartner(venture.design_partner || '');
+              setEditSelectedEmployeeIds(ventureAllocations.map((a) => a.employee_id));
               setEditError(null);
               setEditing(true);
             }}
@@ -222,6 +271,31 @@ function ExplorationStagingCard({ venture, teamMembers, onUpdate, onDelete }: Ex
                   className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
                 />
               </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Team members</label>
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-zinc-300 p-2">
+                  {employees.length === 0 ? (
+                    <p className="text-xs text-zinc-500">No employees</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {employees.map((emp) => (
+                        <label
+                          key={emp.id}
+                          className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-zinc-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={editSelectedEmployeeIds.includes(emp.id)}
+                            onChange={() => toggleEmployee(emp.id)}
+                            className="rounded border-zinc-300"
+                          />
+                          <span className="text-sm text-zinc-700">{emp.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="mt-5 flex gap-2">
               <button
@@ -254,7 +328,7 @@ interface ExplorationStagingSectionProps {
 
 export function ExplorationStagingSection({ refreshTrigger, onRefresh }: ExplorationStagingSectionProps) {
   const [ventures, setVentures] = useState<Venture[]>([]);
-  const [allocations, setAllocations] = useState<{ employee_id: number; venture_id: number }[]>([]);
+  const [allocations, setAllocations] = useState<{ id: number; employee_id: number; venture_id: number }[]>([]);
   const [employees, setEmployees] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -279,19 +353,19 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
     return () => { cancelled = true; };
   }, [refreshTrigger]);
 
-  const updateVenture = async (id: number, updates: Partial<Venture>): Promise<boolean> => {
+  const updateVenture = async (id: number, updates: Partial<Venture>): Promise<{ ok: boolean; error?: string }> => {
     const res = await fetch(`/api/ventures/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
     });
+    const data = await res.json().catch(() => ({}));
     if (res.ok) {
-      const data = await res.json();
       setVentures((v) => v.map((x) => (x.id === id ? data : x)));
       onRefresh?.();
-      return true;
+      return { ok: true };
     }
-    return false;
+    return { ok: false, error: typeof data?.error === 'string' ? data.error : 'Failed to update venture' };
   };
 
   const deleteVenture = async (id: number): Promise<boolean> => {
@@ -309,6 +383,56 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
     return empIds
       .map((id) => employees.find((e) => e.id === id))
       .filter((e): e is { id: number; name: string } => e != null);
+  };
+
+  const getVentureAllocations = (ventureId: number): { id: number; employee_id: number; venture_id: number }[] =>
+    allocations.filter((a) => a.venture_id === ventureId);
+
+  const updateTeam = async (
+    ventureId: number,
+    addEmployeeIds: number[],
+    removeAllocationIds: number[],
+    options?: { tentativeStartDate?: string | null }
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const startDate = options?.tentativeStartDate
+      ? new Date(options.tentativeStartDate)
+      : new Date();
+    const weekStarts = getWeekStartsForTwoMonths(startDate);
+    try {
+      for (const id of removeAllocationIds) {
+        const res = await fetch(`/api/allocations/${id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          return { ok: false, error: typeof data?.error === 'string' ? data.error : 'Failed to remove team member' };
+        }
+      }
+      for (const empId of addEmployeeIds) {
+        for (const weekStart of weekStarts) {
+          const res = await fetch('/api/allocations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              venture_id: ventureId,
+              employee_id: empId,
+              fte_percentage: 50,
+              week_start: weekStart,
+            }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            return { ok: false, error: typeof data?.error === 'string' ? data.error : 'Failed to add team member' };
+          }
+        }
+      }
+      const aRes = await fetch('/api/allocations');
+      const aData = await aRes.json();
+      setAllocations(Array.isArray(aData) ? aData : []);
+      onRefresh?.();
+      return { ok: true };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to update team';
+      return { ok: false, error: msg };
+    }
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
@@ -342,7 +466,7 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
       <section>
         <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold tracking-tight text-zinc-900">
           <span className="h-2 w-2 rounded-full bg-teal-400" />
-          Exploration Staging
+          Exploration Staging ({ventures.length})
         </h2>
         <div className="flex gap-4 overflow-x-auto pb-4">
           {[1, 2, 3].map((i) => (
@@ -361,7 +485,7 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
       <div className="mb-4 flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-zinc-900">
           <span className="h-2 w-2 rounded-full bg-teal-400" />
-          Exploration Staging
+          Exploration Staging ({ventures.length})
         </h2>
         <button
           type="button"
@@ -379,7 +503,10 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
                 key={v.id}
                 venture={v}
                 teamMembers={getTeamForVenture(v.id)}
+                ventureAllocations={getVentureAllocations(v.id)}
+                employees={employees}
                 onUpdate={updateVenture}
+                onUpdateTeam={updateTeam}
                 onDelete={deleteVenture}
               />
             ))}
@@ -450,26 +577,36 @@ function AddExplorationVentureForm({
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         const venture = data as { id: number };
-        const weekStart = tentativeStart
-          ? getWeekStartString(new Date(tentativeStart))
-          : getWeekStartString(new Date());
+        const startDate = tentativeStart ? new Date(tentativeStart) : new Date();
+        const weekStarts = getWeekStartsForTwoMonths(startDate);
         for (const empId of selectedEmployeeIds) {
-          await fetch('/api/allocations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              venture_id: venture.id,
-              employee_id: empId,
-              fte_percentage: 50,
-              week_start: weekStart,
-            }),
-          });
+          for (const weekStart of weekStarts) {
+            const allocRes = await fetch('/api/allocations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                venture_id: venture.id,
+                employee_id: empId,
+                fte_percentage: 50,
+                week_start: weekStart,
+              }),
+            });
+            if (!allocRes.ok) {
+              const allocData = await allocRes.json().catch(() => ({}));
+              const allocErr = typeof allocData?.error === 'string' ? allocData.error : 'Failed to add team member';
+              setError(allocErr);
+              toast.show(allocErr);
+              if (process.env.NODE_ENV === 'development') console.error('Allocation POST failed:', allocErr);
+              return;
+            }
+          }
         }
         onAdded();
       } else {
         const errMsg = typeof data?.error === 'string' ? data.error : 'Failed to add venture';
         setError(errMsg);
         toast.show(errMsg);
+        if (process.env.NODE_ENV === 'development') console.error('Venture POST failed:', data);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to add venture';

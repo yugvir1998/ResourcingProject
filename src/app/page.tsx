@@ -4,15 +4,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { KanbanBoard } from '@/components/KanbanBoard';
 import { AddVentureForm } from '@/components/AddVentureForm';
 import { TimelineView } from '@/components/TimelineView';
-import { BattlefieldSummary } from '@/components/BattlefieldSummary';
 import { ExplorationStagingSection } from '@/components/ExplorationStagingSection';
 import { SupportVenturesSection } from '@/components/SupportVenturesSection';
+import { PeopleAllocationView } from '@/components/PeopleAllocationView';
 import { TimelineSyncProvider } from '@/contexts/TimelineSyncContext';
 
 export default function CommandCenterPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [backlogExpanded, setBacklogExpanded] = useState(false);
   const [backlogCount, setBacklogCount] = useState(0);
+  const [activeCount, setActiveCount] = useState(0);
 
   const onAdded = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -25,15 +26,16 @@ export default function CommandCenterPage() {
   useEffect(() => {
     fetch('/api/ventures')
       .then((r) => r.json())
-      .then((data: { status: string }[]) => {
-        setBacklogCount((data || []).filter((v) => v.status === 'backlog').length);
+      .then((data: { status: string; timeline_visible?: boolean }[]) => {
+        const list = data || [];
+        setBacklogCount(list.filter((v) => v.status === 'backlog').length);
+        setActiveCount(list.filter((v) => v.timeline_visible === true).length);
       })
       .catch(() => {});
   }, [refreshKey]);
 
   return (
     <div className="space-y-10">
-      <BattlefieldSummary />
       {/* Section 1: Backlog (collapsible) - hidden from page */}
       {false && (
       <section>
@@ -78,13 +80,16 @@ export default function CommandCenterPage() {
         <section>
           <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold tracking-tight text-zinc-900">
             <span className="h-2 w-2 rounded-full bg-amber-400" />
-            Active Ventures
+            Active Ventures ({activeCount})
           </h2>
           <TimelineView defaultCollapsed showSectionHeader={false} refreshTrigger={refreshKey} onVentureDeleted={onDeleted} />
         </section>
 
         {/* Section 4: Support Ventures */}
         <SupportVenturesSection refreshTrigger={refreshKey} onRefresh={onAdded} />
+
+        {/* Section 5: People Allocation */}
+        <PeopleAllocationView refreshTrigger={refreshKey} />
       </TimelineSyncProvider>
     </div>
   );
