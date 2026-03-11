@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Venture } from '@/types';
+import { DeleteVentureConfirmModal } from '@/components/DeleteVentureConfirmModal';
 
 interface VentureCardProps {
   venture: Venture;
@@ -37,6 +38,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
   const [editNotionLink, setEditNotionLink] = useState(venture.notion_link || '');
   const [editDesignPartner, setEditDesignPartner] = useState(venture.design_partner || '');
   const [editTentativeStart, setEditTentativeStart] = useState(venture.tentative_start_date || '');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `card-${venture.id}`,
@@ -61,11 +63,13 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
     if (success !== false) setEditing(false);
   };
 
-  const handleDelete = (e: React.MouseEvent) => {
+  const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm(`Delete "${venture.name}"?`)) {
-      onDelete?.(venture.id);
-    }
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    await onDelete?.(venture.id);
   };
 
   const handleGreenlight = (e: React.MouseEvent) => {
@@ -203,7 +207,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
               {onDelete && (
                 <button
                   type="button"
-                  onClick={handleDelete}
+                  onClick={handleDeleteClick}
                   className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-600"
                   title="Delete"
                 >
@@ -327,6 +331,12 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
           </div>
         </div>
       )}
+      <DeleteVentureConfirmModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleDeleteConfirm}
+        ventureName={venture.name}
+      />
     </>
   );
 }

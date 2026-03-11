@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { Venture, VenturePhase, HiringMilestone, Employee, Allocation } from '@/types';
 import { useToast } from '@/components/Toast';
+import { DeleteVentureConfirmModal } from '@/components/DeleteVentureConfirmModal';
 
 function MilestoneEditRow({
   milestone,
@@ -166,6 +167,7 @@ export function ProjectPanel({
   const [localAllocations, setLocalAllocations] = useState<Allocation[]>(allocations);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const handleDeletePhase = async (id: number) => {
     const res = await fetch(`/api/venture-phases/${id}`, { method: 'DELETE' });
@@ -578,16 +580,21 @@ export function ProjectPanel({
         </button>
         {onDelete && (
           <button
-            onClick={async () => {
-              if (!confirm(`Delete "${venture.name}" permanently? This cannot be undone.`)) return;
-              await onDelete();
-            }}
+            onClick={() => setShowDeleteModal(true)}
             className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
           >
             Delete project
           </button>
         )}
       </div>
+      {onDelete && (
+        <DeleteVentureConfirmModal
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          onConfirm={onDelete}
+          ventureName={venture.name}
+        />
+      )}
     </div>
   );
 }

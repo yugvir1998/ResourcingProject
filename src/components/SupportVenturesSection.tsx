@@ -13,6 +13,7 @@ import { arrayMove, horizontalListSortingStrategy, SortableContext, useSortable 
 import { CSS } from '@dnd-kit/utilities';
 import type { Venture } from '@/types';
 import { useToast } from '@/components/Toast';
+import { DeleteVentureConfirmModal } from '@/components/DeleteVentureConfirmModal';
 
 function getFirstName(name: string): string {
   const first = name.trim().split(/\s+/)[0];
@@ -59,6 +60,7 @@ function SupportVentureCard({ venture, teamMembers, ventureAllocations, employee
   const [editOneMetric, setEditOneMetric] = useState(venture.one_metric_that_matters || '');
   const [editSelectedEmployeeIds, setEditSelectedEmployeeIds] = useState<number[]>([]);
   const [editError, setEditError] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const toggleEmployee = (id: number) => {
     setEditSelectedEmployeeIds((prev) =>
@@ -99,8 +101,9 @@ function SupportVentureCard({ venture, teamMembers, ventureAllocations, employee
     setEditing(false);
   };
 
-  const handleDelete = async () => {
-    if (!confirm(`Delete "${venture.name}"?`)) return;
+  const handleDeleteClick = () => setShowDeleteModal(true);
+
+  const handleDeleteConfirm = async () => {
     const success = await onDelete(venture.id);
     if (!success) {
       toast.show('Failed to delete venture');
@@ -143,7 +146,7 @@ function SupportVentureCard({ venture, teamMembers, ventureAllocations, employee
             </button>
             <button
               type="button"
-              onClick={handleDelete}
+              onClick={handleDeleteClick}
               className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
               title="Delete"
               aria-label="Delete"
@@ -268,6 +271,12 @@ function SupportVentureCard({ venture, teamMembers, ventureAllocations, employee
           </div>
         </div>
       )}
+      <DeleteVentureConfirmModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleDeleteConfirm}
+        ventureName={venture.name}
+      />
     </>
   );
 }

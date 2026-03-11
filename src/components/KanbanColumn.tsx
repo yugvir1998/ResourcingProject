@@ -9,18 +9,20 @@ interface KanbanColumnProps {
   title: string;
   ventures: Venture[];
   variant?: 'backlog' | 'active';
+  muted?: boolean;
   renderCard: (venture: Venture) => React.ReactNode;
 }
 
-export function KanbanColumn({ id, title, ventures, variant = 'backlog', renderCard }: KanbanColumnProps) {
+export function KanbanColumn({ id, title, ventures, variant = 'backlog', muted = false, renderCard }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
   const baseStyles = 'min-w-[260px] rounded-xl border-2 p-3 transition-all duration-200 ring-1 ring-zinc-900/5';
   const backlogStyles = variant === 'backlog' ? 'border-slate-200 bg-slate-50/50' : 'border-amber-200 bg-amber-50/30';
   const isOverStyles = isOver ? 'border-amber-400/60 bg-amber-50/60 shadow-sm' : '';
+  const mutedStyles = muted ? 'opacity-40' : '';
 
   return (
-    <div ref={setNodeRef} className={`${baseStyles} ${backlogStyles} ${isOverStyles}`}>
+    <div ref={setNodeRef} className={`${baseStyles} ${backlogStyles} ${isOverStyles} ${mutedStyles}`}>
       <h3 className="mb-3 text-sm font-medium text-zinc-600">{title}</h3>
       <SortableContext items={ventures.map((v) => `card-${v.id}`)} strategy={verticalListSortingStrategy}>
         <div className="space-y-2">

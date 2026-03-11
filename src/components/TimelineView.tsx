@@ -378,7 +378,6 @@ export function TimelineView(props?: TimelineViewProps) {
     { id: 'build', label: 'Build', phase: 'build' as const, columnClass: 'border-2 border-[#4A7AFF] bg-[#4A7AFF]/20', titleClass: 'text-[#2563eb]' },
     { id: 'spin_out', label: 'Spin out', phase: 'spin_out' as const, columnClass: 'border-2 border-[#FFA166] bg-[#FFA166]/20', titleClass: 'text-[#ea580c]' },
     { id: 'pause', label: 'Paused', phase: 'pause' as const, columnClass: 'border-2 border-dashed border-zinc-300 bg-zinc-100/80', titleClass: 'text-zinc-600' },
-    { id: 'unplanned', label: '—', phase: null as const, columnClass: 'border-2 border-zinc-200 bg-zinc-50/50', titleClass: 'text-zinc-600' },
   ] as const;
 
   const getCurrentPhaseTypeForKanban = (venturePhases: VenturePhase[]) => {
@@ -963,10 +962,11 @@ export function TimelineView(props?: TimelineViewProps) {
         <div className="flex w-full gap-2 pb-4">
             {KANBAN_PHASE_COLUMNS.map((col) => {
               const phaseVentures = getVenturesByPhase(col.phase);
+              const hasVentures = phaseVentures.length > 0;
               return (
                 <div
                   key={col.id}
-                  className={`min-w-0 flex-1 rounded-lg p-2 ring-1 ring-zinc-900/5 ${col.columnClass}`}
+                  className={`min-w-0 flex-1 rounded-lg p-2 ring-1 ring-zinc-900/5 transition-all ${col.columnClass} ${hasVentures ? 'opacity-100' : 'opacity-40'}`}
                 >
                   <h3 className={`mb-2 text-xs font-medium ${col.titleClass}`}>
                     {col.label} ({phaseVentures.length})

@@ -13,6 +13,7 @@ import { arrayMove, horizontalListSortingStrategy, SortableContext, useSortable 
 import { CSS } from '@dnd-kit/utilities';
 import type { Venture } from '@/types';
 import { useToast } from '@/components/Toast';
+import { DeleteVentureConfirmModal } from '@/components/DeleteVentureConfirmModal';
 
 function getWeekStartString(d: Date): string {
   const day = d.getDay();
@@ -63,6 +64,7 @@ function ExplorationStagingCard({ venture, teamMembers, ventureAllocations, empl
   const [editDesignPartner, setEditDesignPartner] = useState(venture.design_partner || '');
   const [editSelectedEmployeeIds, setEditSelectedEmployeeIds] = useState<number[]>([]);
   const [editError, setEditError] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const toggleEmployee = (id: number) => {
     setEditSelectedEmployeeIds((prev) =>
@@ -115,8 +117,9 @@ function ExplorationStagingCard({ venture, teamMembers, ventureAllocations, empl
     setEditing(false);
   };
 
-  const handleDelete = async () => {
-    if (!confirm(`Delete "${venture.name}"?`)) return;
+  const handleDeleteClick = () => setShowDeleteModal(true);
+
+  const handleDeleteConfirm = async () => {
     const success = await onDelete(venture.id);
     if (!success) {
       toast.show('Failed to delete venture');
@@ -162,7 +165,7 @@ function ExplorationStagingCard({ venture, teamMembers, ventureAllocations, empl
           </button>
           <button
             type="button"
-            onClick={handleDelete}
+            onClick={handleDeleteClick}
             className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
             title="Delete"
             aria-label="Delete"
@@ -202,10 +205,11 @@ function ExplorationStagingCard({ venture, teamMembers, ventureAllocations, empl
           onClick={() => setEditing(false)}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-xl"
+            className="flex max-h-[calc(100vh-4rem)] w-full max-w-md flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="mb-4 text-lg font-semibold text-zinc-900">Edit venture</h3>
+            <h3 className="shrink-0 px-6 pt-6 pb-2 text-lg font-semibold text-zinc-900">Edit venture</h3>
+            <div className="flex-1 overflow-y-auto px-6 pb-4">
             <div className="space-y-4">
               {editError && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
@@ -297,7 +301,9 @@ function ExplorationStagingCard({ venture, teamMembers, ventureAllocations, empl
                 </div>
               </div>
             </div>
-            <div className="mt-5 flex gap-2">
+            </div>
+            <div className="shrink-0 border-t border-zinc-200 px-6 py-4">
+            <div className="flex gap-2">
               <button
                 type="button"
                 onClick={handleSave}
@@ -314,9 +320,16 @@ function ExplorationStagingCard({ venture, teamMembers, ventureAllocations, empl
                 Cancel
               </button>
             </div>
+            </div>
           </div>
         </div>
       )}
+      <DeleteVentureConfirmModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleDeleteConfirm}
+        ventureName={venture.name}
+      />
     </>
   );
 }
@@ -537,6 +550,7 @@ function AddExplorationVentureForm({
   const toast = useToast();
   const [name, setName] = useState('');
   const [notes, setNotes] = useState('');
+  const [notionLink, setNotionLink] = useState('');
   const [tentativeStart, setTentativeStart] = useState('');
   const [designPartner, setDesignPartner] = useState('');
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
@@ -570,6 +584,7 @@ function AddExplorationVentureForm({
           name: name.trim(),
           status: 'exploration_staging',
           notes: notes.trim() || null,
+          notion_link: notionLink.trim() || null,
           tentative_start_date: tentativeStart || null,
           design_partner: designPartner.trim() || null,
         }),
@@ -650,6 +665,16 @@ function AddExplorationVentureForm({
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
               className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Notion link (optional)</label>
+            <input
+              type="text"
+              value={notionLink}
+              onChange={(e) => setNotionLink(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+              placeholder="https://..."
             />
           </div>
           <div>

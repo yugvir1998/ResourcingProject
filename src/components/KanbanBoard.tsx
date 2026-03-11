@@ -40,7 +40,6 @@ const ACTIVE_PHASE_COLUMNS: { id: string; label: string; phase: (typeof PHASE_OR
   { id: 'phase-build', label: 'Build', phase: 'build' },
   { id: 'phase-spin-out', label: 'Spin out', phase: 'spin_out' },
   { id: 'phase-paused', label: 'Paused', phase: 'pause' },
-  { id: 'phase-unplanned', label: '—', phase: null },
 ];
 
 interface KanbanBoardProps {
@@ -445,6 +444,7 @@ export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentur
                 title={`${col.label} (${phaseVentures.length})`}
                 ventures={phaseVentures}
                 variant="active"
+                muted={phaseVentures.length === 0}
                 renderCard={(v) => (
                   <VentureCard
                     key={v.id}
