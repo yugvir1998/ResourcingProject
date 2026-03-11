@@ -13,6 +13,8 @@ interface VentureCardProps {
   onDelete?: (id: number) => void | Promise<boolean>;
   onGreenlight?: (id: number) => void | Promise<void>;
   onHideFromVentureTracker?: (id: number) => void | Promise<void>;
+  onMoveToExplorationStaging?: (id: number) => void | Promise<void>;
+  onMoveToSupport?: (id: number) => void | Promise<void>;
 }
 
 function getInitials(name: string): string {
@@ -26,13 +28,15 @@ const CARD_ACCENT = {
   active: 'border-l-amber-400',
 };
 
-export function VentureCard({ venture, primaryContact, employees = [], onUpdate, onDelete, onGreenlight, onHideFromVentureTracker }: VentureCardProps) {
+export function VentureCard({ venture, primaryContact, employees = [], onUpdate, onDelete, onGreenlight, onHideFromVentureTracker, onMoveToExplorationStaging, onMoveToSupport }: VentureCardProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(venture.name);
   const [editNotes, setEditNotes] = useState(venture.notes || '');
   const [editNextSteps, setEditNextSteps] = useState(venture.next_steps || '');
   const [editPrimaryContactId, setEditPrimaryContactId] = useState<number | null>(venture.primary_contact_id ?? null);
   const [editNotionLink, setEditNotionLink] = useState(venture.notion_link || '');
+  const [editDesignPartner, setEditDesignPartner] = useState(venture.design_partner || '');
+  const [editTentativeStart, setEditTentativeStart] = useState(venture.tentative_start_date || '');
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `card-${venture.id}`,
@@ -51,6 +55,8 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
       next_steps: editNextSteps.trim() || null,
       primary_contact_id: editPrimaryContactId,
       notion_link: editNotionLink.trim() || null,
+      design_partner: editDesignPartner.trim() || null,
+      tentative_start_date: editTentativeStart || null,
     });
     if (success !== false) setEditing(false);
   };
@@ -70,6 +76,16 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
   const handleHideFromVentureTracker = (e: React.MouseEvent) => {
     e.stopPropagation();
     onHideFromVentureTracker?.(venture.id);
+  };
+
+  const handleMoveToExplorationStaging = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onMoveToExplorationStaging?.(venture.id);
+  };
+
+  const handleMoveToSupport = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onMoveToSupport?.(venture.id);
   };
 
   const canGreenlight =
@@ -144,6 +160,24 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
                   Greenlight this project
                 </button>
               )}
+              {venture.status === 'backlog' && onMoveToExplorationStaging && (
+                <button
+                  type="button"
+                  onClick={handleMoveToExplorationStaging}
+                  className="mt-2 w-full rounded-lg border border-teal-400 px-3 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-50"
+                >
+                  Move to Exploration Staging
+                </button>
+              )}
+              {venture.status === 'active' && onMoveToSupport && (
+                <button
+                  type="button"
+                  onClick={handleMoveToSupport}
+                  className="mt-2 w-full rounded-lg border border-cyan-400 px-3 py-1.5 text-xs font-medium text-cyan-700 hover:bg-cyan-50"
+                >
+                  Move to Support
+                </button>
+              )}
             </div>
             <div className="flex shrink-0 gap-0.5 opacity-70 transition sm:opacity-0 sm:group-hover:opacity-100">
               <button
@@ -155,6 +189,8 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
                   setEditNextSteps(venture.next_steps || '');
                   setEditPrimaryContactId(venture.primary_contact_id ?? null);
                   setEditNotionLink(venture.notion_link || '');
+                  setEditDesignPartner(venture.design_partner || '');
+                  setEditTentativeStart(venture.tentative_start_date || '');
                   setEditing(true);
                 }}
                 className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
@@ -204,7 +240,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-zinc-700">Notes</label>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Notes (optional)</label>
                 <textarea
                   value={editNotes}
                   onChange={(e) => setEditNotes(e.target.value)}
@@ -214,7 +250,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-zinc-700">Next steps</label>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Next steps (optional)</label>
                 <input
                   type="text"
                   value={editNextSteps}
@@ -225,7 +261,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
               </div>
               {employees.length > 0 && (
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-zinc-700">Gitwit POC</label>
+                  <label className="mb-1 block text-sm font-medium text-zinc-700">Gitwit POC (optional)</label>
                   <select
                     value={editPrimaryContactId ?? ''}
                     onChange={(e) => setEditPrimaryContactId(e.target.value ? parseInt(e.target.value, 10) : null)}
@@ -241,7 +277,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
                 </div>
               )}
               <div>
-                <label className="mb-1 block text-sm font-medium text-zinc-700">Notion link</label>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Notion link (optional)</label>
                 <input
                   type="text"
                   value={editNotionLink}
@@ -250,6 +286,25 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
                   className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
                 />
                 <p className="mt-0.5 text-xs text-zinc-500">Link to reading materials and docs</p>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Design partner (optional)</label>
+                <input
+                  type="text"
+                  value={editDesignPartner}
+                  onChange={(e) => setEditDesignPartner(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                  placeholder="Company or contact name"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Tentative start date (optional)</label>
+                <input
+                  type="date"
+                  value={editTentativeStart}
+                  onChange={(e) => setEditTentativeStart(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                />
               </div>
             </div>
             <div className="mt-5 flex gap-2">

@@ -18,10 +18,10 @@ const AVATAR_COLORS = [
 
 const ALLOCATION_COLORS: Record<string, string> = {
   access: 'border-emerald-400 bg-emerald-50',
-  explore: 'border-teal-400 bg-teal-50',
-  shape: 'border-violet-400 bg-violet-50',
-  build: 'border-rose-400 bg-rose-50',
-  spin_out: 'border-blue-400 bg-blue-50',
+  explore: 'border-[#80E3D1] bg-[#80E3D1]/20',
+  shape: 'border-[#9F6AE2] bg-[#9F6AE2]/20',
+  build: 'border-[#4A7AFF] bg-[#4A7AFF]/20',
+  spin_out: 'border-[#FFA166] bg-[#FFA166]/20',
   support: 'border-cyan-400 bg-cyan-50',
   fundraising: 'border-indigo-400 bg-indigo-50',
   finance_accounting: 'border-teal-400 bg-teal-50',

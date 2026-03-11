@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { Venture, VenturePhase, HiringMilestone, Employee, Allocation } from '@/types';
+import { useToast } from '@/components/Toast';
 
 function MilestoneEditRow({
   milestone,
@@ -91,12 +92,11 @@ function MilestoneEditRow({
   );
 }
 
-const PHASE_OPTIONS: Array<'explore' | 'shape' | 'build' | 'spin_out' | 'support'> = [
+const PHASE_OPTIONS: Array<'explore' | 'shape' | 'build' | 'spin_out'> = [
   'explore',
   'shape',
   'build',
   'spin_out',
-  'support',
 ];
 const ROLE_OPTIONS: Array<'ceo' | 'founding_engineer' | 'other'> = ['ceo', 'founding_engineer', 'other'];
 
@@ -105,7 +105,6 @@ const PHASE_LABELS: Record<string, string> = {
   shape: 'Concept',
   build: 'Build',
   spin_out: 'Spin out',
-  support: 'Support',
 };
 const ROLE_LABELS: Record<string, string> = {
   ceo: 'CEO',
@@ -136,6 +135,8 @@ interface ProjectPanelProps {
   }) => void;
   onRemove: () => void;
   onDelete?: () => void | Promise<void>;
+  onMoveToSupport?: () => void | Promise<void>;
+  onGreenlight?: () => void | Promise<void>;
 }
 
 export function ProjectPanel({
@@ -148,13 +149,23 @@ export function ProjectPanel({
   onSave,
   onRemove,
   onDelete,
+  onMoveToSupport,
+  onGreenlight,
 }: ProjectPanelProps) {
+  const toast = useToast();
   const [name, setName] = useState(venture.name);
   const [notes, setNotes] = useState(venture.notes || '');
+  const [nextSteps, setNextSteps] = useState(venture.next_steps || '');
+  const [notionLink, setNotionLink] = useState(venture.notion_link || '');
+  const [designPartner, setDesignPartner] = useState(venture.design_partner || '');
+  const [tentativeStartDate, setTentativeStartDate] = useState(venture.tentative_start_date || '');
+  const [oneMetric, setOneMetric] = useState(venture.one_metric_that_matters || '');
+  const [primaryContactId, setPrimaryContactId] = useState<string>(venture.primary_contact_id ? String(venture.primary_contact_id) : '');
   const [localPhases, setLocalPhases] = useState<VenturePhase[]>(phases);
   const [localMilestones, setLocalMilestones] = useState<HiringMilestone[]>(milestones);
   const [localAllocations, setLocalAllocations] = useState<Allocation[]>(allocations);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleDeletePhase = async (id: number) => {
     const res = await fetch(`/api/venture-phases/${id}`, { method: 'DELETE' });
@@ -254,20 +265,50 @@ export function ProjectPanel({
   };
 
   const handleSave = async () => {
+    setError(null);
     setSaving(true);
     try {
-      await fetch(`/api/ventures/${venture.id}`, {
+      const res = await fetch(`/api/ventures/${venture.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), notes: notes.trim() || null }),
+        body: JSON.stringify({
+          name: name.trim(),
+          notes: notes.trim() || null,
+          next_steps: nextSteps.trim() || null,
+          notion_link: notionLink.trim() || null,
+          design_partner: designPartner.trim() || null,
+          tentative_start_date: tentativeStartDate || null,
+          one_metric_that_matters: oneMetric.trim() || null,
+          primary_contact_id: primaryContactId ? parseInt(primaryContactId, 10) : null,
+        }),
       });
-      onSave({
-        venture: { name: name.trim(), notes: notes.trim() || null },
-        phases: localPhases,
-        milestones: localMilestones,
-        allocations: localAllocations,
-      });
-      onClose();
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        onSave({
+          venture: {
+            name: name.trim(),
+            notes: notes.trim() || null,
+            next_steps: nextSteps.trim() || null,
+            notion_link: notionLink.trim() || null,
+            design_partner: designPartner.trim() || null,
+            tentative_start_date: tentativeStartDate || null,
+            one_metric_that_matters: oneMetric.trim() || null,
+            primary_contact_id: primaryContactId ? parseInt(primaryContactId, 10) : null,
+          },
+          phases: localPhases,
+          milestones: localMilestones,
+          allocations: localAllocations,
+        });
+        onClose();
+      } else {
+        const errMsg = typeof data?.error === 'string' ? data.error : 'Failed to save';
+        setError(errMsg);
+        toast.show(errMsg);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to save';
+      setError(msg);
+      toast.show(msg);
     } finally {
       setSaving(false);
     }
@@ -289,6 +330,35 @@ export function ProjectPanel({
       </div>
       <div className="flex-1 overflow-y-auto p-4">
         <div className="space-y-4">
+          {onGreenlight && (
+            <button
+              type="button"
+              onClick={() => {
+                onGreenlight();
+                onClose();
+              }}
+              className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            >
+              Greenlight project
+            </button>
+          )}
+          {onMoveToSupport && (
+            <button
+              type="button"
+              onClick={() => {
+                onMoveToSupport();
+                onClose();
+              }}
+              className="w-full rounded-lg border border-cyan-400 px-3 py-2 text-sm font-medium text-cyan-700 hover:bg-cyan-50"
+            >
+              Move to Support
+            </button>
+          )}
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+              {error}
+            </div>
+          )}
           <div>
             <label className="mb-1 block text-sm font-medium text-zinc-700">Name</label>
             <input
@@ -296,16 +366,82 @@ export function ProjectPanel({
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm placeholder:text-zinc-400"
+              placeholder="Venture name"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-zinc-700">Notes</label>
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Notes (optional)</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
               className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm placeholder:text-zinc-400"
+              placeholder="Any notes..."
             />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Next steps (optional)</label>
+            <input
+              type="text"
+              value={nextSteps}
+              onChange={(e) => setNextSteps(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm placeholder:text-zinc-400"
+              placeholder="e.g. Schedule design partner call"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Notion link (optional)</label>
+            <input
+              type="text"
+              value={notionLink}
+              onChange={(e) => setNotionLink(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm placeholder:text-zinc-400"
+              placeholder="https://..."
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Design partner (optional)</label>
+            <input
+              type="text"
+              value={designPartner}
+              onChange={(e) => setDesignPartner(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm placeholder:text-zinc-400"
+              placeholder="Company or contact name"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Tentative start date (optional)</label>
+            <input
+              type="date"
+              value={tentativeStartDate}
+              onChange={(e) => setTentativeStartDate(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm placeholder:text-zinc-400"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-700">One metric that matters (optional)</label>
+            <input
+              type="text"
+              value={oneMetric}
+              onChange={(e) => setOneMetric(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm placeholder:text-zinc-400"
+              placeholder="e.g. Monthly recurring revenue"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Primary contact (optional)</label>
+            <select
+              value={primaryContactId}
+              onChange={(e) => setPrimaryContactId(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
+            >
+              <option value="">None</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>

@@ -33,13 +33,12 @@ const BACKLOG_NO_PARTNER_COLUMNS: { id: string; label: string; status: 'backlog'
 
 const BACKLOG_COLUMNS = [...BACKLOG_STANDARD_COLUMNS, ...BACKLOG_NO_PARTNER_COLUMNS];
 
-const PHASE_ORDER = ['explore', 'shape', 'build', 'spin_out', 'support', 'pause'] as const;
+const PHASE_ORDER = ['explore', 'shape', 'build', 'spin_out', 'pause'] as const;
 const ACTIVE_PHASE_COLUMNS: { id: string; label: string; phase: (typeof PHASE_ORDER)[number] | null }[] = [
   { id: 'phase-explore', label: 'Explore', phase: 'explore' },
   { id: 'phase-shape', label: 'Concept', phase: 'shape' },
   { id: 'phase-build', label: 'Build', phase: 'build' },
   { id: 'phase-spin-out', label: 'Spin out', phase: 'spin_out' },
-  { id: 'phase-support', label: 'Support', phase: 'support' },
   { id: 'phase-paused', label: 'Paused', phase: 'pause' },
   { id: 'phase-unplanned', label: '—', phase: null },
 ];
@@ -183,6 +182,22 @@ export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentur
     }
   };
 
+  const handleMoveToExplorationStaging = async (id: number) => {
+    const ok = await updateVenture(id, { status: 'exploration_staging' });
+    if (ok) {
+      toast.show('Moved to Exploration Staging');
+      onVentureAddedToTimeline?.();
+    }
+  };
+
+  const handleMoveToSupport = async (id: number) => {
+    const ok = await updateVenture(id, { status: 'support' });
+    if (ok) {
+      toast.show('Moved to Support');
+      onVentureAddedToTimeline?.();
+    }
+  };
+
   const ventureCurrentPhase = new Map<number, (typeof PHASE_ORDER)[number] | null>();
   for (const v of timelineVentures) {
     const vPhases = venturePhases.filter((p) => p.venture_id === v.id);
@@ -257,6 +272,11 @@ export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentur
     const targetBacklogCol = BACKLOG_COLUMNS.find((c) => c.id === overId);
     const targetActiveCol = ACTIVE_PHASE_COLUMNS.find((c) => c.id === overId);
 
+    if (overId === 'exploration-staging' && venture.status === 'backlog') {
+      handleMoveToExplorationStaging(ventureId);
+      return;
+    }
+
     if (targetBacklogCol) {
       updateVenture(ventureId, { status: 'backlog', design_partner_status: targetBacklogCol.designPartnerStatus as Venture['design_partner_status'] });
       return;
@@ -298,6 +318,8 @@ export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentur
       updateVenture(ventureId, { status: 'active', exploration_phase: (overVenture.exploration_phase || 'discovery') as Venture['exploration_phase'] });
     } else if (venture.status === 'active' && overVenture?.status === 'backlog') {
       updateVenture(ventureId, { status: 'backlog', design_partner_status: (overVenture.design_partner_status || 'coordinating') as Venture['design_partner_status'] });
+    } else if (venture.status === 'backlog' && overVenture?.status === 'exploration_staging') {
+      handleMoveToExplorationStaging(ventureId);
     }
   };
 
@@ -362,6 +384,7 @@ export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentur
                         onUpdate={updateVenture}
                         onDelete={deleteVenture}
                         onGreenlight={handleGreenlight}
+                        onMoveToExplorationStaging={handleMoveToExplorationStaging}
                       />
                     )}
                   />
@@ -387,10 +410,18 @@ export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentur
                         onUpdate={updateVenture}
                         onDelete={deleteVenture}
                         onGreenlight={handleGreenlight}
+                        onMoveToExplorationStaging={handleMoveToExplorationStaging}
                       />
                     )}
                   />
                 ))}
+                <KanbanColumn
+                  id="exploration-staging"
+                  title="→ Exploration Staging"
+                  ventures={[]}
+                  variant="backlog"
+                  renderCard={() => null}
+                />
               </div>
             </div>
           </div>
@@ -424,6 +455,7 @@ export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentur
                     onDelete={deleteVenture}
                     onGreenlight={handleGreenlight}
                     onHideFromVentureTracker={handleHideFromVentureTracker}
+                    onMoveToSupport={handleMoveToSupport}
                   />
                 )}
               />

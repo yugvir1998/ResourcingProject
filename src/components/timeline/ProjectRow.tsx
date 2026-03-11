@@ -12,22 +12,14 @@ import { PhaseBar } from './PhaseBar';
 import { ActivityBar } from './ActivityBar';
 import { MilestoneMarker } from './MilestoneMarker';
 import { PhasePeopleCards } from './PhasePeopleCards';
+import { PHASE_COLORS } from '@/lib/phaseColors';
 
-const PHASE_TYPES = ['explore', 'shape', 'build', 'spin_out', 'support'] as const;
-const PHASE_COLORS: Record<string, string> = {
-  explore: 'bg-teal-500/90',
-  shape: 'bg-violet-500/90',
-  build: 'bg-rose-500/90',
-  spin_out: 'bg-blue-500/90',
-  support: 'bg-cyan-500/90',
-  pause: 'border-2 border-dashed border-zinc-300 bg-zinc-100',
-};
+const PHASE_TYPES = ['explore', 'shape', 'build', 'spin_out'] as const;
 const PHASE_LABELS: Record<string, string> = {
   explore: 'Explore',
   shape: 'Concept',
   build: 'Build',
   spin_out: 'Spin out',
-  support: 'Support',
   pause: 'Paused',
 };
 const PHASE_ABBREV: Record<string, string> = {
@@ -35,7 +27,6 @@ const PHASE_ABBREV: Record<string, string> = {
   shape: 'C',
   build: 'Bu',
   spin_out: 'Spin',
-  support: 'Sup',
   pause: 'Pau',
 };
 
@@ -55,6 +46,7 @@ function getMilestoneLabel(m: HiringMilestone): string {
 
 interface ProjectRowProps {
   venture: Venture;
+  isPlanned?: boolean;
   phases: VenturePhase[];
   phaseActivities: PhaseActivity[];
   milestones: HiringMilestone[];
@@ -92,6 +84,7 @@ interface ProjectRowProps {
 
 export function ProjectRow({
   venture,
+  isPlanned = false,
   phases,
   phaseActivities,
   milestones,
@@ -121,7 +114,7 @@ export function ProjectRow({
   onMilestoneClick,
   onMilestoneUpdate,
 }: ProjectRowProps) {
-  const venturePhases = phases.filter((p) => p.venture_id === venture.id);
+  const venturePhases = phases.filter((p) => p.venture_id === venture.id && p.phase !== 'support');
   const hasPause = venturePhases.some((p) => p.phase === 'pause');
   const sortedPhases = hasPause
     ? [...venturePhases].sort(
@@ -134,80 +127,85 @@ export function ProjectRow({
   if (collapsed) {
     return (
       <div>
-        <div className="relative flex h-14 items-center">
+        <div className="relative flex h-12 flex-col justify-center">
           {sortedPhases.length > 0 ? (
-            sortedPhases.map((phase) => {
-              const leftPct = dateToOffset(phase.start_date, startDate, totalDays);
-              const rightPct = dateToOffset(phase.end_date, startDate, totalDays);
-              const widthPct = Math.max(rightPct - leftPct, 1);
-              const pixelWidth = (widthPct / 100) * gridWidth;
-              const phaseColor =
-                phase.phase === 'pause'
-                  ? 'bg-zinc-200/90 border border-dashed border-zinc-300'
-                  : PHASE_COLORS[phase.phase] || 'bg-zinc-400/80';
-              const isPause = phase.phase === 'pause';
-              const phaseLabel =
-                pixelWidth < 50
-                  ? ''
-                  : pixelWidth < 70
-                    ? PHASE_ABBREV[phase.phase] || phase.phase
-                    : PHASE_LABELS[phase.phase] || phase.phase;
-              const phaseAllocations = allocations.filter((a) => a.phase_id === phase.id);
-              const assignedIds = [...new Set(phaseAllocations.map((a) => a.employee_id))];
-              const assignedEmployees = assignedIds
-                .map((id) => employees.find((e) => e.id === id))
-                .filter((e): e is { id: number; name: string } => e != null);
-              const maxAvatars = 3;
-              const visibleEmployees = assignedEmployees.slice(0, maxAvatars);
-              const remainingCount = assignedEmployees.length - maxAvatars;
-              const textClass = isPause ? 'text-zinc-700' : 'text-white';
-              const avatarClass = isPause
-                ? 'bg-zinc-100 text-zinc-800 ring-1 ring-zinc-300'
-                : 'bg-white/90 text-zinc-800 ring-1 ring-zinc-900/10';
-
-              return (
-                <div
-                  key={phase.id}
-                  className={`absolute top-1/2 h-8 min-w-[56px] -translate-y-1/2 rounded-none px-1.5 first:rounded-l last:rounded-r ${phaseColor}`}
-                  style={{
-                    left: `${leftPct}%`,
-                    width: `${widthPct}%`,
-                  }}
-                >
-                  <div className="flex h-full min-w-0 items-center justify-start gap-2 overflow-hidden">
-                    {phaseLabel && (
+            <>
+              <div className="relative mb-0.5 flex h-3 items-end">
+                {sortedPhases.map((phase) => {
+                  const leftPct = dateToOffset(phase.start_date, startDate, totalDays);
+                  const rightPct = dateToOffset(phase.end_date, startDate, totalDays);
+                  const widthPct = Math.max(rightPct - leftPct, 1);
+                  const phaseLabel = PHASE_LABELS[phase.phase] || phase.phase;
+                  return (
+                    <div
+                      key={phase.id}
+                      className="absolute flex items-center justify-start"
+                      style={{
+                        left: `${leftPct}%`,
+                        width: `${widthPct}%`,
+                      }}
+                    >
                       <span
-                        className={`shrink-0 truncate text-xs font-medium ${textClass}`}
-                        title={PHASE_LABELS[phase.phase] || phase.phase}
+                        className="truncate text-[8px] font-medium uppercase tracking-wide text-zinc-400"
+                        title={phaseLabel}
                       >
                         {phaseLabel}
                       </span>
-                    )}
-                    {assignedEmployees.length > 0 && (
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        {visibleEmployees.map((emp) => (
-                          <div
-                            key={emp.id}
-                            className={`flex h-6 min-w-6 max-w-14 items-center justify-center rounded-full px-1.5 ${avatarClass}`}
-                            title={emp.name}
-                          >
-                            <span className="truncate text-[11px] font-medium">{getFirstName(emp.name)}</span>
-                          </div>
-                        ))}
-                        {remainingCount > 0 && (
-                          <div
-                            className={`flex h-6 w-6 items-center justify-center rounded-full ${avatarClass}`}
-                            title={assignedEmployees.slice(maxAvatars).map((e) => e.name).join(', ')}
-                          >
-                            <span className="text-[11px] font-medium">+{remainingCount}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="relative flex h-6 items-center">
+                {sortedPhases.map((phase) => {
+                  const leftPct = dateToOffset(phase.start_date, startDate, totalDays);
+                  const rightPct = dateToOffset(phase.end_date, startDate, totalDays);
+                  const widthPct = Math.max(rightPct - leftPct, 1);
+                  const phaseColor =
+                    isPlanned
+                      ? 'border-2 border-dashed border-zinc-300 bg-zinc-200/70'
+                      : phase.phase === 'pause'
+                        ? 'bg-zinc-200/90 border border-dashed border-zinc-300'
+                        : PHASE_COLORS[phase.phase] || 'bg-zinc-400/80';
+                  const isPause = phase.phase === 'pause';
+                  const phaseAllocations = allocations.filter((a) => a.phase_id === phase.id);
+                  const assignedIds = [...new Set(phaseAllocations.map((a) => a.employee_id))];
+                  const assignedEmployees = assignedIds
+                    .map((id) => employees.find((e) => e.id === id))
+                    .filter((e): e is { id: number; name: string } => e != null);
+                  const avatarClass = isPause
+                    ? 'bg-zinc-100 text-zinc-800 ring-1 ring-zinc-300'
+                    : 'bg-white/90 text-zinc-800 ring-1 ring-zinc-900/10';
+
+                  return (
+                    <div
+                      key={phase.id}
+                      className={`absolute top-1/2 h-6 min-w-[48px] -translate-y-1/2 rounded-none px-2 first:rounded-l last:rounded-r ${phaseColor}`}
+                      style={{
+                        left: `${leftPct}%`,
+                        width: `${widthPct}%`,
+                      }}
+                    >
+                      <div className="flex h-full min-w-0 items-center justify-start gap-2 overflow-hidden">
+                        {assignedEmployees.length > 0 && (
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {assignedEmployees.map((emp, idx) => (
+                              <div
+                                key={emp.id}
+                                className={`flex h-4 min-w-4 max-w-12 items-center justify-center gap-0.5 rounded-full px-1 ${avatarClass}`}
+                                title={emp.name}
+                              >
+                                <span className="truncate text-[9px] font-semibold">{getFirstName(emp.name)}</span>
+                                {idx === 0 && <span className="h-1 w-1 shrink-0 rounded-full bg-black" aria-hidden />}
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           ) : (
             <div className="absolute top-1/2 left-1/2 h-1.5 w-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-zinc-200/60" />
           )}
@@ -218,8 +216,8 @@ export function ProjectRow({
 
   return (
     <div>
-      <div className="h-8" aria-hidden />
-      <div className="relative flex h-10 items-center group">
+      <div className="h-6" aria-hidden />
+      <div className="relative flex h-8 items-center group">
         <div
           className="absolute inset-0 cursor-pointer"
           onClick={(e) => {
@@ -242,6 +240,7 @@ export function ProjectRow({
               <PhaseBar
                 key={phase.id}
                 phase={phase}
+                isPlanned={isPlanned}
                 startDate={startDate}
                 endDate={endDate}
                 totalDays={totalDays}
@@ -303,10 +302,11 @@ export function ProjectRow({
               onActivityUpdate &&
               onActivityDelete &&
               activities.map((activity) => (
-                <div key={activity.id} className="relative flex h-8 items-center">
+                <div key={activity.id} className="relative flex h-6 items-center">
                   <div className="absolute inset-0 pl-2">
                     <ActivityBar
                       activity={activity}
+                      isPlanned={isPlanned}
                       startDate={startDate}
                       endDate={endDate}
                       totalDays={totalDays}
@@ -321,7 +321,7 @@ export function ProjectRow({
         );
       })}
       {showPeople && (
-        <div className="relative flex min-h-24 items-start pt-2 pb-2">
+        <div className="relative flex min-h-20 items-start pt-1.5 pb-1.5">
           {sortedPhases
             .filter((phase) => phase.phase !== 'pause')
             .map((phase) => {
@@ -353,7 +353,7 @@ export function ProjectRow({
           })}
         </div>
       )}
-      <div className="h-10" aria-hidden />
+      <div className="h-6" aria-hidden />
     </div>
   );
 }

@@ -2,18 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import type { VenturePhase } from '@/types';
-
-const PHASE_COLORS: Record<string, string> = {
-  explore: 'bg-teal-500/90',
-  shape: 'bg-violet-500/90',
-  build: 'bg-rose-500/90',
-  spin_out: 'bg-blue-500/90',
-  support: 'bg-cyan-500/90',
-  pause: 'border-2 border-dashed border-zinc-300 bg-zinc-100',
-};
+import { PHASE_COLORS } from '@/lib/phaseColors';
 
 interface PhaseBarProps {
   phase: VenturePhase;
+  isPlanned?: boolean;
   startDate: Date;
   endDate: Date;
   totalDays: number;
@@ -44,6 +37,7 @@ function getFirstName(name: string): string {
 
 export function PhaseBar({
   phase,
+  isPlanned = false,
   startDate,
   endDate: _endDate,
   totalDays,
@@ -120,28 +114,17 @@ export function PhaseBar({
     };
   }, [dragging, startDate, totalDays, onUpdate, phase.id, gridWidth, baseLeft, baseRight, onExpandClick]);
 
-  const phaseLabel =
-    phase.phase === 'explore'
-      ? 'Explore'
-      : phase.phase === 'shape'
-        ? 'Concept'
-        : phase.phase === 'build'
-          ? 'Build'
-          : phase.phase === 'spin_out'
-            ? 'Spin out'
-            : phase.phase === 'support'
-              ? 'Support'
-              : phase.phase === 'pause'
-                ? 'Paused'
-                : phase.phase;
-
   const isPause = phase.phase === 'pause';
+  const barColor = isPlanned
+    ? 'border-2 border-dashed border-zinc-400 bg-zinc-300/60'
+    : PHASE_COLORS[phase.phase] || 'bg-zinc-400';
+  const textColor = isPlanned || isPause ? 'text-zinc-600' : 'text-white';
 
   return (
     <div
       data-phase-bar
       data-phase-type={phase.phase}
-      className={`group absolute top-1 h-6 rounded ${PHASE_COLORS[phase.phase] || 'bg-zinc-400'} cursor-move ${isPause ? 'text-zinc-600' : ''}`}
+      className={`group absolute top-0.5 h-6 rounded ${barColor} cursor-move ${textColor}`}
       style={{
         left: `${leftPct}%`,
         width: `${widthPct}%`,
@@ -157,24 +140,25 @@ export function PhaseBar({
         className="absolute -right-2 top-0 h-full w-4 cursor-ew-resize hover:bg-white/30"
         onMouseDown={(e) => handleMouseDown(e, 'right')}
       />
-      <span className={`absolute inset-0 flex items-center justify-center gap-1.5 truncate px-2 text-xs font-medium ${isPause ? 'text-zinc-600' : 'text-white'}`}>
-        {phaseLabel}
-        {assignedPeople.length > 0 && (
-          <span className="flex shrink-0 items-center gap-1">
-            {assignedPeople.map((p) => {
+      <span className={`absolute inset-0 flex items-center justify-center gap-2 truncate px-3 text-xs font-medium ${textColor}`}>
+        {assignedPeople.length > 0 ? (
+          <span className="flex shrink-0 items-center gap-1.5">
+            {assignedPeople.map((p, idx) => {
               const isSmall = assignedPeople.length >= 5;
+              const isLead = idx === 0;
               return (
                 <span
                   key={p.id}
-                  className={`flex max-w-12 items-center justify-center overflow-hidden rounded-full px-1.5 font-medium ${isSmall ? 'h-3 min-w-3 text-[8px]' : 'h-4 min-w-4 text-[9px]'} ${isPause ? 'bg-zinc-300/80 text-zinc-700' : 'bg-white/30 text-white'}`}
+                  className={`flex max-w-12 items-center justify-center gap-0.5 overflow-hidden rounded-full px-1.5 font-medium ${isSmall ? 'h-3 min-w-3 text-[8px]' : 'h-4 min-w-4 text-[9px]'} ${isPlanned || isPause ? 'bg-zinc-300/80 text-zinc-700' : 'bg-white/30 text-white'}`}
                   title={p.name}
                 >
                   <span className="truncate">{getFirstName(p.name)}</span>
+                  {isLead && <span className="h-1 w-1 shrink-0 rounded-full bg-black" aria-hidden />}
                 </span>
               );
             })}
           </span>
-        )}
+        ) : null}
       </span>
     </div>
   );

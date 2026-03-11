@@ -59,18 +59,20 @@ export function PhasePeopleCards({
 
   return (
     <div
-      className={`flex flex-wrap gap-1.5 border-b border-zinc-50 py-1.5 ${widthPct != null ? 'min-w-0 overflow-hidden' : ''}`}
+      className={`flex flex-wrap gap-1 border-b border-zinc-50 py-1 ${widthPct != null ? 'min-w-0 overflow-hidden' : ''}`}
       style={{ paddingLeft: leftOffsetPct > 0 ? `${leftOffsetPct}%` : undefined }}
     >
-      {allocations.map((a) => {
+      {allocations.map((a, idx) => {
         const emp = employees.find((e) => e.id === a.employee_id);
         const isEditing = editingId === a.id;
+        const isLead = idx === 0;
         return (
           <div
             key={a.id}
-            className="flex items-center gap-1 rounded border border-zinc-200 bg-white px-2 py-1 text-xs shadow-sm"
+            className="flex items-center gap-1 rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-[11px] shadow-sm"
           >
             <span className="font-medium text-zinc-800">{emp?.name || 'Unknown'}</span>
+            {isLead && <span className="h-1 w-1 shrink-0 rounded-full bg-black" aria-hidden />}
             {isEditing ? (
               <input
                 type="number"

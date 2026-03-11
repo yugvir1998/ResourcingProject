@@ -5,6 +5,7 @@ import type { PhaseActivity } from '@/types';
 
 interface ActivityBarProps {
   activity: PhaseActivity;
+  isPlanned?: boolean;
   startDate: Date;
   endDate: Date;
   totalDays: number;
@@ -27,6 +28,7 @@ function offsetToDate(offset: number, startDate: Date, totalDays: number): Date 
 
 export function ActivityBar({
   activity,
+  isPlanned = false,
   startDate,
   endDate: _endDate,
   totalDays,
@@ -94,7 +96,7 @@ export function ActivityBar({
 
   return (
     <div
-      className="group absolute top-1 h-5 rounded border border-zinc-300 bg-zinc-100/90 cursor-move"
+      className={`group absolute top-1 h-5 rounded cursor-move ${isPlanned ? 'border-2 border-dashed border-zinc-400 bg-zinc-200/70' : 'border border-zinc-300 bg-zinc-100/90'}`}
       style={{
         left: `${leftPct}%`,
         width: `${widthPct}%`,

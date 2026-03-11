@@ -40,12 +40,9 @@ export function BattlefieldSummary() {
     });
   }, []);
 
-  const backlogCount = ventures.filter((x) => x.status === 'backlog').length;
+  const explorationStagingCount = ventures.filter((x) => x.status === 'exploration_staging').length;
   const activeCount = ventures.filter((x) => x.status === 'active').length;
-  const supportCount = ventures.filter((v) => {
-    const phases = venturePhases.filter((p) => p.venture_id === v.id);
-    return getCurrentPhaseForVenture(phases) === 'support';
-  }).length;
+  const supportCount = ventures.filter((v) => v.status === 'support').length;
 
   if (loading) {
     return (
@@ -63,16 +60,16 @@ export function BattlefieldSummary() {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm ring-1 ring-zinc-900/5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border-2 border-zinc-300 bg-zinc-50">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-zinc-600">
+        <div className="flex items-center gap-3 rounded-xl border border-teal-200 bg-teal-50/50 p-4 shadow-sm ring-1 ring-teal-100">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border-2 border-teal-400 bg-teal-50">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-teal-700">
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
               <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
             </svg>
           </div>
           <div>
-            <div className="text-xl font-bold tabular-nums text-zinc-900">{backlogCount}</div>
-            <div className="text-xs font-medium text-zinc-500">Backlog</div>
+            <div className="text-xl font-bold tabular-nums text-zinc-900">{explorationStagingCount}</div>
+            <div className="text-xs font-medium text-teal-700">Exploration Staging</div>
           </div>
         </div>
         <div className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50/50 p-4 shadow-sm ring-1 ring-amber-200/30">
@@ -86,9 +83,9 @@ export function BattlefieldSummary() {
             <div className="text-xs font-medium text-amber-700">Active exploration</div>
           </div>
         </div>
-        <div className="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 shadow-sm ring-1 ring-zinc-900/5">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl border-2 border-zinc-300 bg-zinc-50">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-zinc-600">
+        <div className="flex items-center gap-3 rounded-xl border border-cyan-200 bg-cyan-50/50 p-4 shadow-sm ring-1 ring-cyan-100">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border-2 border-cyan-400 bg-cyan-50">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-cyan-700">
               <path d="M12 2v4" />
               <path d="m4.93 4.93 2.83 2.83" />
               <path d="M2 12h4" />
@@ -101,7 +98,7 @@ export function BattlefieldSummary() {
           </div>
           <div>
             <div className="text-xl font-bold tabular-nums text-zinc-900">{supportCount}</div>
-            <div className="text-xs font-medium text-zinc-500">Support</div>
+            <div className="text-xs font-medium text-cyan-700">Support</div>
           </div>
         </div>
         <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm ring-1 ring-zinc-900/5">

@@ -35,13 +35,17 @@ interface AddProjectModalProps {
 }
 
 export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalProps) {
-  const [mode, setMode] = useState<'choose' | 'new' | 'select'>('choose');
+  const [mode, setMode] = useState<'choose' | 'new' | 'select' | 'selectChoice'>('choose');
+  const [selectedVenture, setSelectedVenture] = useState<Venture | null>(null);
   const [name, setName] = useState('');
   const [notes, setNotes] = useState('');
+  const [nextSteps, setNextSteps] = useState('');
+  const [primaryContactId, setPrimaryContactId] = useState<string>('');
+  const [notionLink, setNotionLink] = useState('');
   const [ventures, setVentures] = useState<Venture[]>([]);
+  const [employees, setEmployees] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [submittingId, setSubmittingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -51,16 +55,60 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
         .then((r) => r.json())
         .then((data: Venture[] | { error?: string }) => {
           const list = Array.isArray(data) ? data : [];
-          const filtered = list.filter(
-            (v) =>
-              (v.status === 'backlog' || v.status === 'active') &&
-              v.timeline_visible !== true
-          );
+          const filtered = list.filter((v) => v.status === 'exploration_staging');
           setVentures(filtered);
         })
         .finally(() => setLoading(false));
     }
   }, [isOpen, mode]);
+
+  useEffect(() => {
+    if (isOpen && mode === 'new') {
+      fetch('/api/employees')
+        .then((r) => r.json())
+        .then((data: { id: number; name: string }[] | { error?: string }) => {
+          setEmployees(Array.isArray(data) ? data : []);
+        });
+    }
+  }, [isOpen, mode]);
+
+  const promoteFromExploration = async (v: Venture, choice: 'active' | 'planned') => {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/ventures/${v.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: choice === 'active' ? 'active' : v.status,
+          timeline_visible: true,
+          exploration_phase: 'discovery',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed to add project');
+        return;
+      }
+      const phasesRes = await fetch(`/api/venture-phases?ventureId=${v.id}`);
+      const phases = await phasesRes.json();
+      if (Array.isArray(phases) && phases.length === 0) {
+        try {
+          await applyTimelineTemplate(v.id);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Failed to apply timeline template');
+          return;
+        }
+      }
+      const updatedVenture = { ...data, timeline_visible: true };
+      await onAdded(v.id, updatedVenture);
+      handleClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleAddNew = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +122,9 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
         body: JSON.stringify({
           name: name.trim(),
           notes: notes.trim() || null,
+          next_steps: nextSteps.trim() || null,
+          primary_contact_id: primaryContactId ? parseInt(primaryContactId, 10) : null,
+          notion_link: notionLink.trim() || null,
           status: 'backlog',
           backlog_priority: 999,
           timeline_visible: true,
@@ -100,47 +151,19 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
     }
   };
 
-  const handleSelect = async (v: Venture) => {
-    setError(null);
-    setSubmitting(true);
-    setSubmittingId(v.id);
-    try {
-      const res = await fetch(`/api/ventures/${v.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ timeline_visible: true }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        const phasesRes = await fetch(`/api/venture-phases?ventureId=${v.id}`);
-        const phases = await phasesRes.json();
-        if (Array.isArray(phases) && phases.length === 0) {
-          try {
-            await applyTimelineTemplate(v.id);
-          } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to apply timeline template');
-            return;
-          }
-        }
-        const updatedVenture = { ...data, timeline_visible: true };
-        await onAdded(v.id, updatedVenture);
-        handleClose();
-      } else {
-        setError(data.error || 'Failed to add project');
-      }
-    } catch (err) {
-      console.error(err);
-      setError('Something went wrong. Please try again.');
-    } finally {
-      setSubmitting(false);
-      setSubmittingId(null);
-    }
+  const handleSelectVenture = (v: Venture) => {
+    setSelectedVenture(v);
+    setMode('selectChoice');
   };
 
   const handleClose = () => {
     setMode('choose');
+    setSelectedVenture(null);
     setName('');
     setNotes('');
+    setNextSteps('');
+    setPrimaryContactId('');
+    setNotionLink('');
     setError(null);
     onClose();
   };
@@ -172,12 +195,12 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
                 </button>
               </div>
               <div className="border-t border-zinc-200 pt-4">
-                <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">Select from Venture Tracker</p>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">Add from Exploration Staging</p>
                 <button
                   onClick={() => setMode('select')}
                   className="w-full rounded-lg border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
                 >
-                  Select from Venture Tracker
+                  Add from Exploration Staging
                 </button>
               </div>
             </div>
@@ -201,7 +224,7 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm placeholder:text-zinc-400"
-                  placeholder="Project name"
+                  placeholder="Venture name"
                   required
                   autoFocus
                 />
@@ -216,11 +239,46 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
                   placeholder="Any notes..."
                 />
               </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Next steps (optional)</label>
+                <input
+                  type="text"
+                  value={nextSteps}
+                  onChange={(e) => setNextSteps(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm placeholder:text-zinc-400"
+                  placeholder="e.g. Schedule design partner call"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Primary contact (optional)</label>
+                <select
+                  value={primaryContactId}
+                  onChange={(e) => setPrimaryContactId(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
+                >
+                  <option value="">None</option>
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Notion link (optional)</label>
+                <input
+                  type="text"
+                  value={notionLink}
+                  onChange={(e) => setNotionLink(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm placeholder:text-zinc-400"
+                  placeholder="https://..."
+                />
+              </div>
             </div>
             {error && (
-              <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
                 {error}
-              </p>
+              </div>
             )}
             <p className="mt-2 text-xs text-zinc-500">
               Template: Explore 2mo → Concept 2mo → Build 2mo → Spin out 2mo → Support 6mo + placeholder milestone
@@ -246,11 +304,11 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
 
         {mode === 'select' && (
           <>
-            <h3 className="mb-4 text-lg font-semibold text-zinc-900">Select from Venture Tracker</h3>
+            <h3 className="mb-4 text-lg font-semibold text-zinc-900">Add from Exploration Staging</h3>
             {error && (
-              <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
                 {error}
-              </p>
+              </div>
             )}
             {loading ? (
               <div className="py-8 text-center text-sm text-zinc-500">Loading…</div>
@@ -261,8 +319,8 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                   </svg>
                 </div>
-                <p className="text-sm font-medium text-zinc-700">No exploration projects available</p>
-                <p className="mt-1 text-sm text-zinc-500">All have been added to the timeline, or create a new one above.</p>
+                <p className="text-sm font-medium text-zinc-700">No ventures in Exploration Staging</p>
+                <p className="mt-1 text-sm text-zinc-500">Add ventures in the Exploration Staging section above, or create a new one.</p>
               </div>
             ) : (
               <div className="max-h-64 space-y-1 overflow-y-auto">
@@ -273,18 +331,54 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      handleSelect(v);
+                      handleSelectVenture(v);
                     }}
                     disabled={submitting}
                     className="w-full rounded-lg border border-zinc-200 px-4 py-2.5 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
                   >
-                    {submittingId === v.id ? 'Adding…' : v.name}
+                    {v.name}
                   </button>
                 ))}
               </div>
             )}
             <button
               onClick={() => setMode('choose')}
+              className="mt-4 w-full rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-600 hover:bg-zinc-50"
+            >
+              Back
+            </button>
+          </>
+        )}
+
+        {mode === 'selectChoice' && selectedVenture && (
+          <>
+            <h3 className="mb-4 text-lg font-semibold text-zinc-900">Add &quot;{selectedVenture.name}&quot; to timeline</h3>
+            {error && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+                {error}
+              </div>
+            )}
+            <p className="mb-4 text-sm text-zinc-600">Choose how to add this project:</p>
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => promoteFromExploration(selectedVenture, 'active')}
+                disabled={submitting}
+                className="w-full rounded-lg border-2 border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-medium text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50"
+              >
+                <span className="font-semibold">Greenlight</span> – Fully active project on the timeline
+              </button>
+              <button
+                type="button"
+                onClick={() => promoteFromExploration(selectedVenture, 'planned')}
+                disabled={submitting}
+                className="w-full rounded-lg border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
+              >
+                <span className="font-semibold">Plan</span> – Tentative project (grayed out) until you greenlight it
+              </button>
+            </div>
+            <button
+              onClick={() => { setMode('select'); setSelectedVenture(null); }}
               className="mt-4 w-full rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-600 hover:bg-zinc-50"
             >
               Back

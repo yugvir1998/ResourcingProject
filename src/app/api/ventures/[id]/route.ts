@@ -23,7 +23,7 @@ export async function PATCH(
   const { id } = await params;
   const body = await request.json();
 
-  const allowed = ['name', 'status', 'backlog_priority', 'timeline_priority', 'design_partner_status', 'exploration_phase', 'one_metric_that_matters', 'notes', 'next_steps', 'primary_contact_id', 'notion_link', 'timeline_visible', 'hidden_from_venture_tracker'];
+  const allowed = ['name', 'status', 'backlog_priority', 'timeline_priority', 'design_partner_status', 'design_partner', 'exploration_phase', 'one_metric_that_matters', 'notes', 'next_steps', 'primary_contact_id', 'notion_link', 'timeline_visible', 'hidden_from_venture_tracker', 'tentative_start_date'];
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
   for (const key of allowed) {
@@ -46,7 +46,7 @@ export async function PATCH(
 
   if (error && (error.message?.includes('notes') || error.message?.includes('next_steps') || error.message?.includes('does not exist'))) {
     const safeUpdates: Record<string, unknown> = { updated_at: updates.updated_at };
-    const safeKeys = ['name', 'status', 'backlog_priority', 'design_partner_status', 'exploration_phase', 'one_metric_that_matters', 'primary_contact_id', 'notion_link'];
+    const safeKeys = ['name', 'status', 'backlog_priority', 'design_partner_status', 'design_partner', 'exploration_phase', 'one_metric_that_matters', 'primary_contact_id', 'notion_link'];
     if (!error.message?.includes('timeline_visible')) safeKeys.push('timeline_visible');
     if (!error.message?.includes('hidden_from_venture_tracker')) safeKeys.push('hidden_from_venture_tracker');
     for (const k of safeKeys) {

@@ -84,9 +84,10 @@ function SortableVentureRow({
 }: {
   venture: Venture;
   children: (params: {
-    dragHandle: React.ReactNode;
     setNodeRef: (el: HTMLElement | null) => void;
     style: React.CSSProperties;
+    attributes: Record<string, unknown>;
+    listeners: Record<string, unknown>;
   }) => React.ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: venture.id });
@@ -94,26 +95,9 @@ function SortableVentureRow({
     transform: CSS.Transform.toString(transform),
     transition,
   };
-  const dragHandle = (
-    <button
-      type="button"
-      className="shrink-0 cursor-grab rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600 active:cursor-grabbing"
-      aria-label="Drag to reorder"
-      {...attributes}
-      {...listeners}
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="opacity-60">
-        <circle cx="6" cy="8" r="1.5" />
-        <circle cx="12" cy="8" r="1.5" />
-        <circle cx="18" cy="8" r="1.5" />
-        <circle cx="6" cy="16" r="1.5" />
-        <circle cx="12" cy="16" r="1.5" />
-        <circle cx="18" cy="16" r="1.5" />
-      </svg>
-    </button>
-  );
-  return <>{children({ dragHandle, setNodeRef, style })}</>;
+  return <>{children({ setNodeRef, style, attributes, listeners })}</>;
 }
+import { ActiveVentureKanbanCard } from './ActiveVentureKanbanCard';
 import { AddProjectModal } from './timeline/AddProjectModal';
 import { TimeAxis, getColumnWidth, getDateRange, getGridTotalWidth, getMonthsBetween, type ZoomLevel } from './timeline/TimeAxis';
 import { ProjectRow } from './timeline/ProjectRow';
@@ -162,6 +146,7 @@ export function TimelineView(props?: TimelineViewProps) {
     milestone?: HiringMilestone;
   } | null>(null);
   const [resumePausePhaseId, setResumePausePhaseId] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<'timeline' | 'kanban'>('timeline');
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const hasScrolledToTodayRef = useRef(false);
 
@@ -213,6 +198,29 @@ export function TimelineView(props?: TimelineViewProps) {
       }),
     });
   }, []);
+
+  const handleGreenlight = useCallback(
+    async (ventureId: number) => {
+      try {
+        const res = await fetch(`/api/ventures/${ventureId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'active' }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          toast.show(data.error || 'Failed to greenlight');
+          return;
+        }
+        setVentures((prev) => prev.map((v) => (v.id === ventureId ? data : v)));
+        toast.show('Project greenlit');
+        fetchData();
+      } catch (err) {
+        toast.show(err instanceof Error ? err.message : 'Something went wrong');
+      }
+    },
+    [toast]
+  );
 
   const handleUnhide = useCallback(
     async (ventureId: number) => {
@@ -341,10 +349,10 @@ export function TimelineView(props?: TimelineViewProps) {
   }, [defaultCollapsed, loading, timelineVentures]);
 
   const PHASE_PILL_COLORS: Record<string, string> = {
-    explore: 'bg-teal-500/90 text-white',
-    shape: 'bg-violet-500/90 text-white',
-    build: 'bg-rose-500/90 text-white',
-    spin_out: 'bg-blue-500/90 text-white',
+    explore: 'bg-[#80E3D1] text-white',
+    shape: 'bg-[#9F6AE2] text-white',
+    build: 'bg-[#4A7AFF] text-white',
+    spin_out: 'bg-[#FFA166] text-white',
     support: 'bg-cyan-500/90 text-white',
     pause: 'bg-zinc-200 text-zinc-700 border border-dashed border-zinc-400',
   };
@@ -362,6 +370,32 @@ export function TimelineView(props?: TimelineViewProps) {
       if (today >= start && today <= end) return p;
     }
     return null;
+  };
+
+  const KANBAN_PHASE_COLUMNS = [
+    { id: 'explore', label: 'Explore', phase: 'explore' as const, columnClass: 'border-2 border-[#80E3D1] bg-[#80E3D1]/20', titleClass: 'text-[#0d9488]' },
+    { id: 'shape', label: 'Concept', phase: 'shape' as const, columnClass: 'border-2 border-[#9F6AE2] bg-[#9F6AE2]/20', titleClass: 'text-[#7c3aed]' },
+    { id: 'build', label: 'Build', phase: 'build' as const, columnClass: 'border-2 border-[#4A7AFF] bg-[#4A7AFF]/20', titleClass: 'text-[#2563eb]' },
+    { id: 'spin_out', label: 'Spin out', phase: 'spin_out' as const, columnClass: 'border-2 border-[#FFA166] bg-[#FFA166]/20', titleClass: 'text-[#ea580c]' },
+    { id: 'pause', label: 'Paused', phase: 'pause' as const, columnClass: 'border-2 border-dashed border-zinc-300 bg-zinc-100/80', titleClass: 'text-zinc-600' },
+    { id: 'unplanned', label: '—', phase: null as const, columnClass: 'border-2 border-zinc-200 bg-zinc-50/50', titleClass: 'text-zinc-600' },
+  ] as const;
+
+  const getCurrentPhaseTypeForKanban = (venturePhases: VenturePhase[]) => {
+    const phaseObj = getCurrentPhaseForVenture(venturePhases);
+    if (!phaseObj) return null;
+    if (phaseObj.phase === 'support') return null;
+    return phaseObj.phase === 'pause' ? 'pause' : phaseObj.phase;
+  };
+
+  const ventureCurrentPhase = new Map<number, (typeof KANBAN_PHASE_COLUMNS)[number]['phase']>();
+  for (const v of timelineVentures) {
+    const vPhases = phases.filter((p) => p.venture_id === v.id);
+    ventureCurrentPhase.set(v.id, getCurrentPhaseTypeForKanban(vPhases));
+  }
+
+  const getVenturesByPhase = (phase: (typeof KANBAN_PHASE_COLUMNS)[number]['phase']) => {
+    return timelineVentures.filter((v) => ventureCurrentPhase.get(v.id) === phase);
   };
   const localDateRange = getDateRange(phases, milestones);
   const startDate = (sync?.startDate) ?? localDateRange.start;
@@ -491,6 +525,15 @@ export function TimelineView(props?: TimelineViewProps) {
     if (res.ok) {
       const created = await res.json();
       setPhaseActivities((pa) => [...pa, created]);
+      setExpandedPhaseIds((prev) => new Set([...prev, venturePhaseId]));
+      const ventureId = phases.find((p) => p.id === venturePhaseId)?.venture_id;
+      if (ventureId != null) {
+        setCollapsedProjectIds((prev) => {
+          const next = new Set(prev);
+          next.delete(ventureId);
+          return next;
+        });
+      }
     } else {
       await fetchData();
     }
@@ -809,12 +852,36 @@ export function TimelineView(props?: TimelineViewProps) {
           {showSectionHeader && (
             <h2 className="text-xl font-semibold tracking-tight text-zinc-900">Active Ventures</h2>
           )}
-          <p className={`text-sm text-zinc-500 ${showSectionHeader ? 'mt-0.5' : ''}`}>
-            Drag phases to resize · Drag milestones to move · Ctrl+scroll to zoom
-          </p>
+          <div className={`flex flex-wrap items-center gap-3 ${showSectionHeader ? 'mt-0.5' : ''}`}>
+            <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewMode('timeline')}
+                className={`rounded-md px-2.5 py-1 text-sm font-medium transition-colors ${
+                  viewMode === 'timeline' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+              >
+                Timeline View
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('kanban')}
+                className={`rounded-md px-2.5 py-1 text-sm font-medium transition-colors ${
+                  viewMode === 'kanban' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+              >
+                Kanban View
+              </button>
+            </div>
+            {viewMode === 'timeline' && (
+              <p className="text-sm text-zinc-500">
+                Drag phases to resize · Drag milestones to move · Ctrl+scroll to zoom
+              </p>
+            )}
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {zoomScale !== 1 && (
+          {viewMode === 'timeline' && zoomScale !== 1 && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-zinc-400 tabular-nums">{Math.round(zoomScale * 100)}%</span>
               <button
@@ -892,6 +959,35 @@ export function TimelineView(props?: TimelineViewProps) {
             Add project
           </button>
         </div>
+      ) : viewMode === 'kanban' ? (
+        <div className="flex w-full gap-2 pb-4">
+            {KANBAN_PHASE_COLUMNS.map((col) => {
+              const phaseVentures = getVenturesByPhase(col.phase);
+              return (
+                <div
+                  key={col.id}
+                  className={`min-w-0 flex-1 rounded-lg p-2 ring-1 ring-zinc-900/5 ${col.columnClass}`}
+                >
+                  <h3 className={`mb-2 text-xs font-medium ${col.titleClass}`}>
+                    {col.label} ({phaseVentures.length})
+                  </h3>
+                  <div className="space-y-1.5">
+                    {phaseVentures.map((v) => (
+                      <ActiveVentureKanbanCard
+                        key={v.id}
+                        venture={v}
+                        allocations={allocations}
+                        employees={employees}
+                        currentPhase={col.phase}
+                        onSelect={setSelectedVentureId}
+                        onHide={handleHideFromTimeline}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
       ) : (
         <div className="flex max-h-[calc(100vh-14rem)] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm ring-1 ring-zinc-900/5">
           <div
@@ -904,31 +1000,6 @@ export function TimelineView(props?: TimelineViewProps) {
             onScroll={handleScroll}
           >
             <div className="relative flex min-w-max flex-col pt-1">
-              {(() => {
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                const startTime = startDate.getTime();
-                const endTime = endDate.getTime();
-                const totalMs = endTime - startTime;
-                if (totalMs <= 0) return null;
-                const todayOffsetPct = Math.max(0, Math.min(1, (today.getTime() - startTime) / totalMs));
-                const sidebarWidth = 192;
-                const leftPx = sidebarWidth + todayOffsetPct * gridTotalWidth;
-                return (
-                  <div
-                    className="pointer-events-none absolute left-0 top-0 z-10 h-6"
-                    style={{ width: leftPx }}
-                    aria-hidden
-                  >
-                    <span
-                      className="absolute right-0 top-0 -translate-y-1 -translate-x-1/2 whitespace-nowrap rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-600"
-                      title="Today"
-                    >
-                      Today
-                    </span>
-                  </div>
-                );
-              })()}
               <div className="flex min-w-max">
                 <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50" />
                 <div className="timeline-grid shrink-0" style={{ width: gridTotalWidth }}>
@@ -944,6 +1015,7 @@ export function TimelineView(props?: TimelineViewProps) {
               <SortableContext items={timelineVentures.map((v) => v.id)} strategy={verticalListSortingStrategy}>
             {timelineVentures.map((v, ventureIndex) => {
               const isCollapsed = collapsedProjectIds.has(v.id);
+              const isPlanned = v.status === 'planned' || v.status === 'exploration_staging';
               const venturePhases = phases.filter((p) => p.venture_id === v.id);
               const currentPhase = getCurrentPhaseForVenture(venturePhases);
               const phaseTypes = ['explore', 'shape', 'build', 'spin_out', 'support', 'pause'] as const;
@@ -958,8 +1030,12 @@ export function TimelineView(props?: TimelineViewProps) {
 
               return (
                 <SortableVentureRow key={v.id} venture={v}>
-                {({ dragHandle, setNodeRef, style }) => (
-                <div ref={setNodeRef} style={style} className="flex flex-col">
+                {({ setNodeRef, style, attributes, listeners }) => (
+                <div
+                  ref={setNodeRef}
+                  style={style}
+                  className="flex flex-col"
+                >
                   {ventureIndex > 0 && (
                     <div className="flex min-w-max border-t border-zinc-200 pt-1">
                       <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50" />
@@ -967,48 +1043,83 @@ export function TimelineView(props?: TimelineViewProps) {
                     </div>
                   )}
                   <div className="flex min-w-max">
-                    <div className="sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50">
+                    <div className={`group sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 ${isPlanned ? 'bg-zinc-200' : 'bg-zinc-50'}`}>
                       {isCollapsed ? (
-                        <div className="flex h-14 items-center gap-1.5 border-b border-zinc-100 px-2">
-                          {dragHandle}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleProjectCollapse(v.id);
-                            }}
-                            className="mr-1 shrink-0 rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
-                            aria-label="Expand project"
-                            title="Expand"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90"><polyline points="6 9 12 15 18 9" /></svg>
-                          </button>
-                          <button onClick={() => setSelectedVentureId(v.id)} className="shrink-0 rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700" aria-label="Edit project" title="Edit project">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                          </button>
-                          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                            <span className="truncate text-sm font-medium text-zinc-900">{v.name}</span>
-                            <span className={`self-start rounded-full px-2 py-0.5 text-xs font-medium ${currentPhase ? PHASE_PILL_COLORS[currentPhase.phase] || 'bg-zinc-200 text-zinc-700' : 'bg-zinc-200 text-zinc-500'}`}>
-                              {currentPhase ? phaseLabels[currentPhase.phase] ?? '—' : '—'}
-                            </span>
+                        <div className="flex h-11 min-w-0 flex-col justify-between border-b border-zinc-100 px-1.5 py-0.5">
+                          <div className="flex min-w-0 items-center gap-x-1">
+                            <button
+                              type="button"
+                              {...attributes}
+                              {...listeners}
+                              className="shrink-0 cursor-grab touch-none rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600 active:cursor-grabbing"
+                              aria-label="Drag to reorder"
+                              title="Drag to reorder"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="9" cy="5" r="1" /><circle cx="9" cy="12" r="1" /><circle cx="9" cy="19" r="1" />
+                                <circle cx="15" cy="5" r="1" /><circle cx="15" cy="12" r="1" /><circle cx="15" cy="19" r="1" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleProjectCollapse(v.id);
+                              }}
+                              className="shrink-0 rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
+                              aria-label="Expand project"
+                              title="Expand"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90"><polyline points="6 9 12 15 18 9" /></svg>
+                            </button>
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-900">{v.name}{isPlanned && <span className="ml-1 text-xs text-zinc-500">(planned)</span>}</span>
+                            <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100" onPointerDown={(e) => e.stopPropagation()}>
+                              <button onClick={() => setSelectedVentureId(v.id)} className="rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700" aria-label="Edit project" title="Edit project">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleHideFromTimeline(v.id); }}
+                                className="rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
+                                aria-label="Hide from timeline"
+                                title="Hide from timeline"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                              </button>
+                            </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); handleHideFromTimeline(v.id); }}
-                            className="shrink-0 rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
-                            aria-label="Hide from timeline"
-                            title="Hide from timeline"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                              <circle cx="12" cy="12" r="3" />
-                            </svg>
-                          </button>
+                          {isPlanned && (
+                            <div className="flex items-center gap-x-1">
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleGreenlight(v.id); }}
+                                className="shrink-0 rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-emerald-700"
+                                title="Greenlight"
+                              >
+                                Greenlight
+                              </button>
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <>
-                          <div className="flex h-8 items-center gap-1.5 border-b border-zinc-100 px-2">
-                            {dragHandle}
+                          <div className="flex h-6 min-w-0 items-center gap-x-1 gap-y-1 border-b border-zinc-100 px-1.5">
+                            <button
+                              type="button"
+                              {...attributes}
+                              {...listeners}
+                              className="shrink-0 cursor-grab touch-none rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600 active:cursor-grabbing"
+                              aria-label="Drag to reorder"
+                              title="Drag to reorder"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="9" cy="5" r="1" /><circle cx="9" cy="12" r="1" /><circle cx="9" cy="19" r="1" />
+                                <circle cx="15" cy="5" r="1" /><circle cx="15" cy="12" r="1" /><circle cx="15" cy="19" r="1" />
+                              </svg>
+                            </button>
                             <button
                               type="button"
                               onClick={(e) => {
@@ -1023,64 +1134,41 @@ export function TimelineView(props?: TimelineViewProps) {
                                 <polyline points="6 9 12 15 18 9" />
                               </svg>
                             </button>
-                            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900">{v.name}</span>
-                            <button onClick={() => setSelectedVentureId(v.id)} className="shrink-0 rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700" aria-label="Edit project" title="Edit project">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                              </svg>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); handleHideFromTimeline(v.id); }}
-                              className="shrink-0 rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
-                              aria-label="Hide from timeline"
-                              title="Hide from timeline"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                <circle cx="12" cy="12" r="3" />
-                              </svg>
-                            </button>
-                          </div>
-                          <div className="flex h-10 items-center gap-2 border-b border-zinc-100 px-3">
-                            <div className="flex flex-1 items-center justify-center gap-0.5">
-                              {phaseTypes.map((type) => {
-                                const phase = venturePhases.find((p) => p.phase === type);
-                                if (!phase) return null;
-                                const isPhaseExpanded = expandedPhaseIds.has(phase.id);
-                                const isCurrentPhase = currentPhase?.id === phase.id;
-                                const abbrev: Record<string, string> = {
-                                  explore: 'E',
-                                  shape: 'C',
-                                  build: 'B',
-                                  spin_out: 'O',
-                                  support: 'Su',
-                                  pause: 'P',
-                                };
-                                return (
-                                  <button
-                                    key={phase.id}
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setExpandedPhaseIds((prev) => {
-                                        const next = new Set(prev);
-                                        if (next.has(phase.id)) next.delete(phase.id);
-                                        else next.add(phase.id);
-                                        return next;
-                                      });
-                                    }}
-                                    className={`flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded px-1 text-[10px] font-medium transition ${isPhaseExpanded ? `${PHASE_PILL_COLORS[phase.phase] || 'bg-zinc-300'} ${phase.phase === 'pause' ? 'text-zinc-700' : 'text-white'}` : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200'} ${isCurrentPhase && !isPhaseExpanded ? 'ring-1 ring-zinc-400' : ''}`}
-                                    title={`${phaseLabels[phase.phase]}${isCurrentPhase ? ' (current)' : ''} · ${isPhaseExpanded ? 'Collapse' : 'Expand'}`}
-                                  >
-                                    {abbrev[phase.phase] ?? '?'}
-                                  </button>
-                                );
-                              })}
+                            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900" title={`${v.name}${isPlanned ? ' (planned)' : ''}`}>{v.name}{isPlanned && <span className="ml-1 shrink-0 text-xs font-normal text-zinc-500">(planned)</span>}</span>
+                            <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100" onPointerDown={(e) => e.stopPropagation()}>
+                              <button onClick={() => setSelectedVentureId(v.id)} className="rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700" aria-label="Edit project" title="Edit project">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                </svg>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleHideFromTimeline(v.id); }}
+                                className="rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
+                                aria-label="Hide from timeline"
+                                title="Hide from timeline"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                              </button>
                             </div>
                           </div>
-                          <div className="h-4 border-b border-zinc-100" aria-hidden />
+                          {isPlanned && (
+                            <div className="flex items-center border-b border-zinc-100 px-2 py-1">
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleGreenlight(v.id); }}
+                                className="rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-emerald-700"
+                                title="Greenlight"
+                              >
+                                Greenlight
+                              </button>
+                            </div>
+                          )}
+                          <div className="h-3 border-b border-zinc-100" aria-hidden />
                           {phaseTypes.map((type) => {
                             const phase = venturePhases.find((p) => p.phase === type);
                             if (!phase) return null;
@@ -1093,8 +1181,8 @@ export function TimelineView(props?: TimelineViewProps) {
                             return (
                               <div key={phase.id}>
                                 {activities.map((act) => (
-                                  <div key={act.id} className="flex h-8 items-center border-b border-zinc-100 pl-5 pr-2">
-                                    <span className="truncate text-xs text-zinc-600">{act.name}</span>
+                                  <div key={act.id} className="flex h-6 items-center border-b border-zinc-100 pl-4 pr-1.5">
+                                    <span className="truncate text-[11px] text-zinc-600">{act.name}</span>
                                   </div>
                                 ))}
                               </div>
@@ -1103,7 +1191,7 @@ export function TimelineView(props?: TimelineViewProps) {
                         </>
                       )}
                     </div>
-                    <div className="timeline-grid relative shrink-0 pb-1" data-timeline-grid style={{ width: gridTotalWidth }}>
+                    <div className={`timeline-grid relative shrink-0 pb-1 ${isPlanned ? 'bg-zinc-200' : ''}`} data-timeline-grid style={{ width: gridTotalWidth }}>
                       {(() => {
                         const months = getMonthsBetween(startDate, endDate);
                         return (
@@ -1121,6 +1209,7 @@ export function TimelineView(props?: TimelineViewProps) {
                       <ProjectRow
                         key={v.id}
                         venture={v}
+                        isPlanned={isPlanned}
                         phases={phases.filter((p) => p.venture_id === v.id)}
                         phaseActivities={phaseActivities}
                         collapsed={collapsedProjectIds.has(v.id)}
@@ -1176,11 +1265,21 @@ export function TimelineView(props?: TimelineViewProps) {
               const leftPx = sidebarWidth + todayOffsetPct * gridTotalWidth;
               return (
                 <div
-                  className="pointer-events-none absolute top-6 z-[5] border-l border-amber-200"
-                  style={{ left: leftPx, width: 0, height: 'calc(100% - 1.5rem)' }}
-                  title="Today"
+                  className="pointer-events-none absolute left-0 top-0 z-10 flex min-w-0 flex-col"
+                  style={{ left: leftPx, width: 0, height: '100%' }}
                   aria-hidden
-                />
+                >
+                  <span
+                    className="absolute left-1/2 top-0 -translate-x-1/2 whitespace-nowrap rounded bg-amber-400 px-1.5 py-0.5 text-[10px] font-semibold text-amber-950"
+                    title="Today"
+                  >
+                    Today
+                  </span>
+                  <div
+                    className="absolute left-0 top-6 bottom-0 w-0 border-l-2 border-amber-500"
+                    title="Today"
+                  />
+                </div>
               );
             })()}
           </div>
@@ -1259,6 +1358,27 @@ export function TimelineView(props?: TimelineViewProps) {
                     toast.show(data.error || 'Failed to delete project');
                   }
                 }}
+                onGreenlight={(selectedVenture.status === 'planned' || selectedVenture.status === 'exploration_staging') ? async () => {
+                  await handleGreenlight(selectedVenture.id);
+                  setSelectedVentureId(null);
+                } : undefined}
+                onMoveToSupport={selectedVenture.status === 'active' ? async () => {
+                  const id = selectedVenture.id;
+                  const res = await fetch(`/api/ventures/${id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: 'support' }),
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    setVentures((prev) => prev.map((v) => (v.id === id ? data : v)));
+                    setSelectedVentureId(null);
+                    onVentureDeleted?.(); // triggers page refresh so Support Ventures section updates
+                    toast.show('Tagged as Support');
+                  } else {
+                    toast.show('Failed to tag as Support');
+                  }
+                } : undefined}
               />
               </div>
             </>

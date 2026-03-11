@@ -62,7 +62,7 @@ export function AddVentureForm({ onAdded }: AddVentureFormProps) {
         setShow(false);
         onAdded();
       } else {
-        setError( typeof data?.error === 'string' ? data.error : 'Failed to add venture');
+        setError(typeof data?.error === 'string' ? data.error : 'Failed to add venture');
         toast.show(typeof data?.error === 'string' ? data.error : 'Failed to add venture');
       }
     } catch (err) {

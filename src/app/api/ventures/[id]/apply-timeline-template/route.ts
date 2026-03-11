@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/supabase';
 
-const PHASES = ['explore', 'shape', 'build', 'spin_out', 'support'] as const;
-// Explore 2mo, Concept 2mo, Build 2mo, Spin out 2mo, Support 6mo
-const PHASE_DAYS = [60, 60, 60, 60, 180];
+const PHASES = ['explore', 'shape', 'build', 'spin_out'] as const;
+// Explore 2mo, Concept 2mo, Build 2mo, Spin out 2mo (support removed - now a venture status)
+const PHASE_DAYS = [60, 60, 60, 60];
 
 export async function POST(
   _request: Request,
@@ -17,7 +17,7 @@ export async function POST(
 
   const supabase = getSupabase();
 
-  const REQUIRED_PHASES = ['explore', 'shape', 'build', 'spin_out', 'support'] as const;
+  const REQUIRED_PHASES = ['explore', 'shape', 'build', 'spin_out'] as const;
 
   // Check if phases already exist and are complete
   const { data: existingPhases } = await supabase
@@ -29,7 +29,7 @@ export async function POST(
     phasesList.some((ep: { phase: string }) => ep.phase === p)
   );
 
-  if (hasAllPhases && phasesList.length >= 5) {
+  if (hasAllPhases && phasesList.length >= 4) {
     const { data: fullPhases } = await supabase
       .from('venture_phases')
       .select('*')
@@ -67,7 +67,7 @@ export async function POST(
   if (error) {
     console.error(error);
     const hint =
-      'If phases like "shape" or "support" are rejected, ensure migrations 012 and 013 are applied (npm run db:supabase).';
+      'If phases like "shape" are rejected, ensure migrations 012 and 013 are applied (npm run db:supabase).';
     return NextResponse.json(
       { error: error.message, hint },
       { status: 500 }

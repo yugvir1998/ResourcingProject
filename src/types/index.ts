@@ -1,4 +1,4 @@
-export type VentureStatus = 'backlog' | 'active' | 'support';
+export type VentureStatus = 'backlog' | 'exploration_staging' | 'planned' | 'active' | 'support';
 export type DesignPartnerStatus =
   | 'coordinating'
   | 'early_conversations'
@@ -31,6 +31,8 @@ export interface Venture {
   notion_link?: string | null;
   timeline_visible?: boolean | null;
   hidden_from_venture_tracker?: boolean | null;
+  tentative_start_date?: string | null;
+  design_partner?: string | null;
   created_at: string;
   updated_at: string;
 }
