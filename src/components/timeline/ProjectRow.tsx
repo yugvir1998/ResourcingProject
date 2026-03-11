@@ -226,6 +226,17 @@ export function ProjectRow({
             }
           }}
         >
+          {onPhaseRowClick && (
+            <div
+              className="absolute left-0 top-0 bottom-0 z-10 w-8 cursor-pointer rounded-r border-r border-dashed border-zinc-300/60 hover:bg-zinc-100/80"
+              title="Add milestone"
+              aria-label="Add milestone"
+            >
+              <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100">
+                +
+              </span>
+            </div>
+          )}
           {sortedPhases.map((phase) => {
             const phaseAllocs = allocations.filter((a) => a.phase_id === phase.id);
             const assignedPeople = [
