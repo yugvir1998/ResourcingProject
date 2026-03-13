@@ -1,0 +1,24 @@
+# Render Blueprint - Resourcing Dashboard
+# https://render.com/docs/blueprint-spec
+#
+# After connecting your GitHub repo:
+# 1. Add environment variables in Render Dashboard: Environment
+# 2. Required: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DB_URL, OPENAI_API_KEY
+
+services:
+  - type: web
+    runtime: node
+    name: resourcing-dashboard
+    region: oregon
+
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      # Add these in Render Dashboard (Environment tab) - never commit secrets:
+      # - NEXT_PUBLIC_SUPABASE_URL
+      # - SUPABASE_SERVICE_ROLE_KEY
+      # - SUPABASE_DB_URL
+      # - OPENAI_API_KEY

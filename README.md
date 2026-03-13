@@ -48,6 +48,28 @@ Open [http://localhost:3000](http://localhost:3000)
 
 Data added in the dashboard is stored in Supabase. You can also add or edit data directly in the Supabase **Table Editor**; it will show up on the dashboard when you refresh.
 
+## Deploy to Render
+
+1. **Push your code** to GitHub (e.g. `yugvir1998/ResourcingProject`).
+
+2. **Create a Render account** at [render.com](https://render.com) and connect your GitHub.
+
+3. **New Web Service** → Connect your repo. Render will detect `render.yaml` (Blueprint).
+
+4. **Add environment variables** in Render Dashboard → your service → Environment:
+   - `NEXT_PUBLIC_SUPABASE_URL` – from Supabase Settings → API → Project URL
+   - `SUPABASE_SERVICE_ROLE_KEY` – from Supabase Settings → API → service_role key
+   - `SUPABASE_DB_URL` – from Supabase Settings → Database → Connection string (URI)
+   - `OPENAI_API_KEY` – for Impact Analysis (optional; omit if not using)
+
+5. **Deploy** – Render will build and deploy. Your app will be live at `https://<your-service>.onrender.com`.
+
+6. **Run migrations** (first time only): In Render Dashboard → Shell, run:
+   ```bash
+   npm run db:supabase
+   ```
+   Or run migrations locally against your Supabase DB before deploying.
+
 ## Database (Supabase / PostgreSQL)
 
 - **Schema** – Defined in `supabase/migrations/` (run `npm run db:supabase` to apply)
