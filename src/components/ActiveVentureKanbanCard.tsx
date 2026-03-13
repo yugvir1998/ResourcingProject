@@ -9,6 +9,13 @@ function formatStartDate(dateStr: string): string {
     .replace(/\//g, '.');
 }
 
+function getVentureTag(v: Venture): 'greenlit' | 'battling' | 'paused' | null {
+  if (v.is_paused === true) return 'paused';
+  if (v.is_greenlit === true) return 'greenlit';
+  if (v.is_active === true) return 'battling';
+  return null;
+}
+
 interface ActiveVentureKanbanCardProps {
   venture: Venture;
   allocations: Allocation[];
@@ -58,7 +65,14 @@ export function ActiveVentureKanbanCard({
         <div className="flex items-start justify-between gap-1">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline gap-1.5">
-              <div className="text-sm font-medium text-zinc-900">{venture.name}</div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-medium text-zinc-900">{venture.name}</span>
+                {(() => {
+                  const tag = getVentureTag(venture);
+                  const dotClass = tag === 'greenlit' ? 'bg-emerald-500' : tag === 'battling' ? 'bg-amber-500' : tag === 'paused' ? 'bg-zinc-400' : '';
+                  return tag ? <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${dotClass}`} title={tag} aria-label={tag} /> : null;
+                })()}
+              </div>
               {tentativeStartDate && (
                 <span className="text-[10px] text-zinc-500">Start: {formatStartDate(tentativeStartDate)}</span>
               )}

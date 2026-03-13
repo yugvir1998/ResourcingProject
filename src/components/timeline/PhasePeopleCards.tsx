@@ -22,6 +22,8 @@ interface PhasePeopleCardsProps {
     endDate: string
   ) => void;
   onAddPause?: (afterPhaseId: number) => void;
+  primaryContactId?: number | null;
+  onSetProjectLead?: (ventureId: number, employeeId: number) => void;
 }
 
 export function PhasePeopleCards({
@@ -36,6 +38,8 @@ export function PhasePeopleCards({
   onRefresh,
   onActivityAdd,
   onAddPause,
+  primaryContactId,
+  onSetProjectLead,
 }: PhasePeopleCardsProps) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingFte, setEditingFte] = useState<number>(0);
@@ -62,17 +66,44 @@ export function PhasePeopleCards({
       className={`flex flex-wrap gap-1 border-b border-zinc-50 py-1 ${widthPct != null ? 'min-w-0 overflow-hidden' : ''}`}
       style={{ paddingLeft: leftOffsetPct > 0 ? `${leftOffsetPct}%` : undefined }}
     >
-      {allocations.map((a, idx) => {
+      {[...allocations]
+        .sort((a, b) => {
+          if (primaryContactId != null && a.employee_id === primaryContactId) return -1;
+          if (primaryContactId != null && b.employee_id === primaryContactId) return 1;
+          return 0;
+        })
+        .map((a, idx) => {
         const emp = employees.find((e) => e.id === a.employee_id);
         const isEditing = editingId === a.id;
-        const isLead = idx === 0;
+        const isLead = primaryContactId != null ? a.employee_id === primaryContactId : idx === 0;
         return (
           <div
             key={a.id}
-            className="flex items-center gap-1 rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-[11px] shadow-sm"
+            className={`flex items-center gap-1 rounded border border-zinc-200 px-1.5 py-0.5 text-[11px] shadow-sm ${isLead ? 'bg-white' : 'bg-white/60'}`}
           >
+            {onSetProjectLead && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSetProjectLead(ventureId, a.employee_id);
+                }}
+                className="shrink-0 text-amber-500 hover:text-amber-600"
+                title={isLead ? 'Project lead' : 'Set as project lead'}
+                aria-label={isLead ? 'Project lead' : 'Set as project lead'}
+              >
+                {isLead ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                  </svg>
+                )}
+              </button>
+            )}
             <span className="font-medium text-zinc-800">{emp?.name || 'Unknown'}</span>
-            {isLead && <span className="h-1 w-1 shrink-0 rounded-full bg-black" aria-hidden />}
             {isEditing ? (
               <input
                 type="number"

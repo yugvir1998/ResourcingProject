@@ -29,7 +29,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, status = 'backlog', backlog_priority = 0, design_partner_status, design_partner, exploration_phase, one_metric_that_matters, notes, next_steps, primary_contact_id, notion_link, timeline_visible, tentative_start_date } = body;
+    const { name, status = 'backlog', backlog_priority = 0, design_partner_status, design_partner, exploration_phase, one_metric_that_matters, notes, next_steps, primary_contact_id, notion_link, timeline_visible, tentative_start_date, is_greenlit, is_paused, is_active } = body;
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
@@ -50,6 +50,9 @@ export async function POST(request: Request) {
       design_partner: design_partner?.trim() || null,
     };
     if (timeline_visible != null) insertPayload.timeline_visible = !!timeline_visible;
+    if (is_greenlit != null) insertPayload.is_greenlit = !!is_greenlit;
+    if (is_paused != null) insertPayload.is_paused = !!is_paused;
+    if (is_active != null) insertPayload.is_active = !!is_active;
 
     let result = await getSupabase()
       .from('ventures')

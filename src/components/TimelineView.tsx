@@ -14,6 +14,68 @@ import { CSS } from '@dnd-kit/utilities';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { Venture, VenturePhase, HiringMilestone, Employee, Allocation, PhaseActivity } from '@/types';
 
+function TagPickerDropdown({
+  anchorRect,
+  ventureId,
+  currentTag,
+  onSelect,
+  onClose,
+}: {
+  anchorRect: DOMRect;
+  ventureId: number;
+  currentTag: 'greenlit' | 'battling' | 'paused' | null;
+  onSelect: (ventureId: number, tag: 'greenlit' | 'battling' | 'paused' | null) => void;
+  onClose: () => void;
+}) {
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (dropdownRef.current && !dropdownRef.current.contains(target)) {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [onClose]);
+
+  const options: { value: 'greenlit' | 'battling' | 'paused' | null; label: string }[] = [
+    { value: 'greenlit', label: 'Greenlit' },
+    { value: 'battling', label: 'Battling' },
+    { value: 'paused', label: 'Paused' },
+    { value: null, label: 'None' },
+  ];
+
+  return (
+    <div
+      ref={dropdownRef}
+      className="fixed z-50 min-w-[140px] rounded-lg border border-zinc-200 bg-white py-1 shadow-lg"
+      style={{
+        left: anchorRect.left,
+        top: anchorRect.bottom + 4,
+      }}
+    >
+      <div className="px-2 py-1.5 text-[10px] font-medium uppercase text-zinc-400">
+        Set tag
+      </div>
+      {options.map((opt) => (
+        <button
+          key={opt.label}
+          type="button"
+          onClick={() => {
+            onSelect(ventureId, opt.value);
+            onClose();
+          }}
+          className={`flex w-full items-center px-3 py-2 text-left text-sm hover:bg-zinc-50 ${opt.value === currentTag ? 'bg-zinc-50 font-medium text-zinc-900' : 'text-zinc-700'}`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function HiddenVenturesDropdown({
   ventures,
   unhidingId,
@@ -95,8 +157,9 @@ function SortableVentureRow({
     transform: CSS.Transform.toString(transform),
     transition,
   };
-  return <>{children({ setNodeRef, style, attributes, listeners })}</>;
+  return <>{children({ setNodeRef, style, attributes: attributes as unknown as Record<string, unknown>, listeners: listeners as unknown as Record<string, unknown> })}</>;
 }
+
 import { ActiveVentureKanbanCard } from './ActiveVentureKanbanCard';
 import { AddProjectModal } from './timeline/AddProjectModal';
 import { TimeAxis, getColumnWidth, getDateRange, getGridTotalWidth, getMonthsBetween, type ZoomLevel } from './timeline/TimeAxis';
@@ -146,6 +209,8 @@ export function TimelineView(props?: TimelineViewProps) {
     milestone?: HiringMilestone;
   } | null>(null);
   const [resumePausePhaseId, setResumePausePhaseId] = useState<number | null>(null);
+  const [tagPickerVentureId, setTagPickerVentureId] = useState<number | null>(null);
+  const [tagPickerAnchorRect, setTagPickerAnchorRect] = useState<DOMRect | null>(null);
   const [viewMode, setViewMode] = useState<'timeline' | 'kanban'>('timeline');
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const hasScrolledToTodayRef = useRef(false);
@@ -304,6 +369,39 @@ export function TimelineView(props?: TimelineViewProps) {
         a.backlog_priority - b.backlog_priority ||
         a.name.localeCompare(b.name)
     );
+
+  const getVentureTag = (v: Venture): 'greenlit' | 'battling' | 'paused' | null => {
+    if (v.is_paused === true) return 'paused';
+    if (v.is_greenlit === true) return 'greenlit';
+    if (v.is_active === true) return 'battling';
+    return null;
+  };
+
+  const handleSetVentureTag = useCallback(
+    async (ventureId: number, tag: 'greenlit' | 'battling' | 'paused' | null) => {
+      const flags =
+        tag === 'greenlit'
+          ? { is_greenlit: true, is_paused: false, is_active: false }
+          : tag === 'battling'
+            ? { is_greenlit: false, is_paused: false, is_active: true }
+            : tag === 'paused'
+              ? { is_greenlit: false, is_paused: true, is_active: false }
+              : { is_greenlit: false, is_paused: false, is_active: false };
+      const res = await fetch(`/api/ventures/${ventureId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(flags),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVentures((prev) => prev.map((v) => (v.id === ventureId ? data : v)));
+      } else {
+        toast.show('Failed to update tag');
+      }
+    },
+    [toast]
+  );
+
   const hiddenVentures = ventures.filter(
     (v) =>
       (v.status === 'backlog' || v.status === 'active' || v.status === 'planned') &&
@@ -337,6 +435,23 @@ export function TimelineView(props?: TimelineViewProps) {
       }
     },
     [timelineVentures, toast]
+  );
+
+  const handleSetProjectLead = useCallback(
+    async (ventureId: number, employeeId: number) => {
+      const res = await fetch(`/api/ventures/${ventureId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ primary_contact_id: employeeId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVentures((prev) => prev.map((v) => (v.id === ventureId ? data : v)));
+      } else {
+        toast.show('Failed to set project lead');
+      }
+    },
+    [toast]
   );
 
   // When defaultCollapsed, start with all projects collapsed (once on initial load)
@@ -390,7 +505,8 @@ export function TimelineView(props?: TimelineViewProps) {
   const ventureCurrentPhase = new Map<number, (typeof KANBAN_PHASE_COLUMNS)[number]['phase']>();
   for (const v of timelineVentures) {
     const vPhases = phases.filter((p) => p.venture_id === v.id);
-    ventureCurrentPhase.set(v.id, getCurrentPhaseTypeForKanban(vPhases));
+    const phaseType = getCurrentPhaseTypeForKanban(vPhases);
+    if (phaseType != null) ventureCurrentPhase.set(v.id, phaseType);
   }
 
   const getVenturesByPhase = (phase: (typeof KANBAN_PHASE_COLUMNS)[number]['phase']) => {
@@ -837,7 +953,7 @@ export function TimelineView(props?: TimelineViewProps) {
 
   if (loading) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-2">
         <div className="h-8 w-48 animate-pulse rounded bg-zinc-200" />
         <div className="h-96 animate-pulse rounded-xl border border-zinc-200 bg-zinc-50" />
       </div>
@@ -845,22 +961,23 @@ export function TimelineView(props?: TimelineViewProps) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
         <div>
           {showSectionHeader && (
             <h2 className="text-xl font-semibold tracking-tight text-zinc-900">Active Ventures</h2>
           )}
-          <div className={`flex flex-wrap items-center gap-3 ${showSectionHeader ? 'mt-0.5' : ''}`}>
+          <div className={`flex flex-wrap items-center gap-2 ${showSectionHeader ? 'mt-0.5' : ''}`}>
             <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
               <button
                 type="button"
                 onClick={() => setViewMode('timeline')}
+                title="Drag phases to resize · Drag milestones to move · Ctrl+scroll to zoom"
                 className={`rounded-md px-2.5 py-1 text-sm font-medium transition-colors ${
                   viewMode === 'timeline' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
-                Timeline View
+                Timeline
               </button>
               <button
                 type="button"
@@ -869,17 +986,12 @@ export function TimelineView(props?: TimelineViewProps) {
                   viewMode === 'kanban' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
-                Kanban View
+                Kanban
               </button>
             </div>
-            {viewMode === 'timeline' && (
-              <p className="text-sm text-zinc-500">
-                Drag phases to resize · Drag milestones to move · Ctrl+scroll to zoom
-              </p>
-            )}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {viewMode === 'timeline' && zoomScale !== 1 && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-zinc-400 tabular-nums">{Math.round(zoomScale * 100)}%</span>
@@ -940,8 +1052,8 @@ export function TimelineView(props?: TimelineViewProps) {
       </div>
 
       {timelineVentures.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-200 py-20">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
+        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-200 py-12">
+          <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100">
             <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-500">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
               <line x1="16" y1="2" x2="16" y2="6" />
@@ -953,7 +1065,7 @@ export function TimelineView(props?: TimelineViewProps) {
           <p className="mt-1 text-sm text-zinc-500">Add a project to visualize phases and capacity.</p>
           <button
             onClick={() => setShowAddModal(true)}
-            className="mt-4 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+            className="mt-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
           >
             Add project
           </button>
@@ -968,7 +1080,7 @@ export function TimelineView(props?: TimelineViewProps) {
                   key={col.id}
                   className={`min-w-0 flex-1 rounded-lg p-2 ring-1 ring-zinc-900/5 transition-all ${col.columnClass} ${hasVentures ? 'opacity-100' : 'opacity-40'}`}
                 >
-                  <h3 className={`mb-2 text-xs font-medium ${col.titleClass}`}>
+                  <h3 className={`mb-1 text-xs font-medium ${col.titleClass}`}>
                     {col.label} ({phaseVentures.length})
                   </h3>
                   <div className="space-y-1.5">
@@ -989,7 +1101,7 @@ export function TimelineView(props?: TimelineViewProps) {
             })}
           </div>
       ) : (
-        <div className="flex max-h-[calc(100vh-14rem)] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm ring-1 ring-zinc-900/5">
+        <div className="flex max-h-[calc(100vh-10rem)] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm ring-1 ring-zinc-900/5">
           <div
             ref={(el) => {
               (scrollContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
@@ -1045,7 +1157,7 @@ export function TimelineView(props?: TimelineViewProps) {
                   <div className="flex min-w-max">
                     <div className={`group sticky left-0 z-20 w-48 shrink-0 border-r border-zinc-200 ${isPlanned ? 'bg-zinc-200' : 'bg-zinc-50'}`}>
                       {isCollapsed ? (
-                        <div className="flex h-11 min-w-0 flex-col justify-between border-b border-zinc-100 px-1.5 py-0.5">
+                        <div className="flex h-9 min-w-0 flex-col justify-between border-b border-zinc-100 px-1 py-0.5">
                           <div className="flex min-w-0 items-center gap-x-1">
                             <button
                               type="button"
@@ -1073,6 +1185,26 @@ export function TimelineView(props?: TimelineViewProps) {
                               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90"><polyline points="6 9 12 15 18 9" /></svg>
                             </button>
                             <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-900">{v.name}{isPlanned && <span className="ml-1 text-xs text-zinc-500">(planned)</span>}</span>
+                            <div className="flex shrink-0 items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
+                              {(() => {
+                                const tag = getVentureTag(v);
+                                const dotClass = tag === 'greenlit' ? 'bg-emerald-500' : tag === 'battling' ? 'bg-amber-500' : tag === 'paused' ? 'bg-zinc-400' : '';
+                                return (
+                                  <>
+                                    {tag && <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${dotClass}`} title={tag} aria-label={tag} />}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); setTagPickerAnchorRect(rect); setTagPickerVentureId((prev) => (prev === v.id ? null : v.id)); }}
+                                      className="shrink-0 rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600 opacity-0 group-hover:opacity-100"
+                                      title="Set tag"
+                                      aria-label="Set tag"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" /><line x1="7" y1="7" x2="7.01" y2="7" /></svg>
+                                    </button>
+                                  </>
+                                );
+                              })()}
+                            </div>
                             <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100" onPointerDown={(e) => e.stopPropagation()}>
                               <button onClick={() => setSelectedVentureId(v.id)} className="rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700" aria-label="Edit project" title="Edit project">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
@@ -1091,18 +1223,6 @@ export function TimelineView(props?: TimelineViewProps) {
                               </button>
                             </div>
                           </div>
-                          {isPlanned && (
-                            <div className="flex items-center gap-x-1">
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); handleGreenlight(v.id); }}
-                                className="shrink-0 rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-emerald-700"
-                                title="Greenlight"
-                              >
-                                Greenlight
-                              </button>
-                            </div>
-                          )}
                         </div>
                       ) : (
                         <>
@@ -1135,6 +1255,26 @@ export function TimelineView(props?: TimelineViewProps) {
                               </svg>
                             </button>
                             <span className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900" title={`${v.name}${isPlanned ? ' (planned)' : ''}`}>{v.name}{isPlanned && <span className="ml-1 shrink-0 text-xs font-normal text-zinc-500">(planned)</span>}</span>
+                            <div className="flex shrink-0 items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
+                              {(() => {
+                                const tag = getVentureTag(v);
+                                const dotClass = tag === 'greenlit' ? 'bg-emerald-500' : tag === 'battling' ? 'bg-amber-500' : tag === 'paused' ? 'bg-zinc-400' : '';
+                                return (
+                                  <>
+                                    {tag && <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${dotClass}`} title={tag} aria-label={tag} />}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); setTagPickerAnchorRect(rect); setTagPickerVentureId((prev) => (prev === v.id ? null : v.id)); }}
+                                      className="shrink-0 rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600 opacity-0 group-hover:opacity-100"
+                                      title="Set tag"
+                                      aria-label="Set tag"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" /><line x1="7" y1="7" x2="7.01" y2="7" /></svg>
+                                    </button>
+                                  </>
+                                );
+                              })()}
+                            </div>
                             <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100" onPointerDown={(e) => e.stopPropagation()}>
                               <button onClick={() => setSelectedVentureId(v.id)} className="rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700" aria-label="Edit project" title="Edit project">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1156,18 +1296,6 @@ export function TimelineView(props?: TimelineViewProps) {
                               </button>
                             </div>
                           </div>
-                          {isPlanned && (
-                            <div className="flex items-center border-b border-zinc-100 px-2 py-1">
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); handleGreenlight(v.id); }}
-                                className="rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-emerald-700"
-                                title="Greenlight"
-                              >
-                                Greenlight
-                              </button>
-                            </div>
-                          )}
                           <div className="h-3 border-b border-zinc-100" aria-hidden />
                           {phaseTypes.map((type) => {
                             const phase = venturePhases.find((p) => p.phase === type);
@@ -1243,6 +1371,7 @@ export function TimelineView(props?: TimelineViewProps) {
                         onPhaseRowClick={handlePhaseRowClick}
                         onMilestoneClick={(m) => setMilestoneModal({ open: true, mode: 'edit', ventureId: v.id, milestone: m })}
                         onMilestoneUpdate={handleMilestoneUpdate}
+                        onSetProjectLead={handleSetProjectLead}
                       />
                     </div>
                   </div>
@@ -1486,6 +1615,26 @@ export function TimelineView(props?: TimelineViewProps) {
         initialMessage={impactInitialMessage}
         onInitialMessageSent={() => setImpactInitialMessage(null)}
       />
+      {tagPickerVentureId != null &&
+        tagPickerAnchorRect != null &&
+        typeof document !== 'undefined' &&
+        (() => {
+          const v = ventures.find((x) => x.id === tagPickerVentureId);
+          if (!v) return null;
+          return createPortal(
+            <TagPickerDropdown
+              anchorRect={tagPickerAnchorRect}
+              ventureId={tagPickerVentureId}
+              currentTag={getVentureTag(v)}
+              onSelect={handleSetVentureTag}
+              onClose={() => {
+                setTagPickerVentureId(null);
+                setTagPickerAnchorRect(null);
+              }}
+            />,
+            document.body
+          );
+        })()}
     </div>
   );
 }

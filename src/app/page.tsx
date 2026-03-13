@@ -35,7 +35,7 @@ export default function CommandCenterPage() {
   }, [refreshKey]);
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-3">
       {/* Section 1: Backlog (collapsible) - hidden from page */}
       {false && (
       <section>
@@ -78,9 +78,9 @@ export default function CommandCenterPage() {
       <TimelineSyncProvider refreshTrigger={refreshKey}>
         {/* Section 3: Active Ventures (Timeline) */}
         <section>
-          <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold tracking-tight text-zinc-900">
-            <span className="h-2 w-2 rounded-full bg-amber-400" />
-            Active Ventures ({activeCount})
+          <h2 className="mb-1.5 flex items-center gap-2 text-lg font-semibold tracking-tight text-zinc-900">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+            Active ({activeCount})
           </h2>
           <TimelineView defaultCollapsed showSectionHeader={false} refreshTrigger={refreshKey} onVentureDeleted={onDeleted} />
         </section>

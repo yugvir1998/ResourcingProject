@@ -143,7 +143,7 @@ export function AddVentureForm({ onAdded }: AddVentureFormProps) {
               </div>
               {employees.length > 0 && (
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-zinc-700">Gitwit POC (optional)</label>
+                  <label className="mb-1 block text-sm font-medium text-zinc-700">Project lead (optional)</label>
                   <select
                     value={primaryContactId ?? ''}
                     onChange={(e) => setPrimaryContactId(e.target.value ? parseInt(e.target.value, 10) : null)}

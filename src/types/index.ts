@@ -31,6 +31,9 @@ export interface Venture {
   notion_link?: string | null;
   timeline_visible?: boolean | null;
   hidden_from_venture_tracker?: boolean | null;
+  is_greenlit?: boolean | null;
+  is_paused?: boolean | null;
+  is_active?: boolean | null;
   tentative_start_date?: string | null;
   design_partner?: string | null;
   created_at: string;

@@ -431,7 +431,7 @@ export function ProjectPanel({
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-zinc-700">Primary contact (optional)</label>
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Project lead (optional)</label>
             <select
               value={primaryContactId}
               onChange={(e) => setPrimaryContactId(e.target.value)}

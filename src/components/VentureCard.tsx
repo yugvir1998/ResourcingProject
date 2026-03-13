@@ -114,7 +114,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
                 {primaryContact && (
                   <span
                     className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-[10px] font-semibold text-amber-800"
-                    title={primaryContact.name}
+                    title={`Project lead: ${primaryContact.name}`}
                   >
                     {getInitials(primaryContact.name)}
                   </span>
@@ -265,7 +265,7 @@ export function VentureCard({ venture, primaryContact, employees = [], onUpdate,
               </div>
               {employees.length > 0 && (
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-zinc-700">Gitwit POC (optional)</label>
+                  <label className="mb-1 block text-sm font-medium text-zinc-700">Project lead (optional)</label>
                   <select
                     value={editPrimaryContactId ?? ''}
                     onChange={(e) => setEditPrimaryContactId(e.target.value ? parseInt(e.target.value, 10) : null)}

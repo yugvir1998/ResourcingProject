@@ -80,6 +80,7 @@ interface ProjectRowProps {
   onPhaseRowClick?: (ventureId: number, e: React.MouseEvent) => void;
   onMilestoneClick?: (milestone: HiringMilestone) => void;
   onMilestoneUpdate?: (id: number, targetDate: string) => void;
+  onSetProjectLead?: (ventureId: number, employeeId: number) => void;
 }
 
 export function ProjectRow({
@@ -113,6 +114,7 @@ export function ProjectRow({
   onPhaseRowClick,
   onMilestoneClick,
   onMilestoneUpdate,
+  onSetProjectLead,
 }: ProjectRowProps) {
   const venturePhases = phases.filter((p) => p.venture_id === venture.id && p.phase !== 'support');
   const hasPause = venturePhases.some((p) => p.phase === 'pause');
@@ -127,7 +129,7 @@ export function ProjectRow({
   if (collapsed) {
     return (
       <div>
-        <div className="relative flex h-12 flex-col justify-center">
+        <div className="relative flex h-10 flex-col justify-center">
           {sortedPhases.length > 0 ? (
             <>
               <div className="relative mb-0.5 flex h-3 items-end">
@@ -171,10 +173,20 @@ export function ProjectRow({
                   const assignedIds = [...new Set(phaseAllocations.map((a) => a.employee_id))];
                   const assignedEmployees = assignedIds
                     .map((id) => employees.find((e) => e.id === id))
-                    .filter((e): e is { id: number; name: string } => e != null);
-                  const avatarClass = isPause
-                    ? 'bg-zinc-100 text-zinc-800 ring-1 ring-zinc-300'
-                    : 'bg-white/90 text-zinc-800 ring-1 ring-zinc-900/10';
+                    .filter((e): e is { id: number; name: string } => e != null)
+                    .sort((a, b) => {
+                      if (venture.primary_contact_id != null && a.id === venture.primary_contact_id) return -1;
+                      if (venture.primary_contact_id != null && b.id === venture.primary_contact_id) return 1;
+                      return 0;
+                    });
+                  const getAvatarClass = (isLead: boolean) =>
+                    isLead
+                      ? isPause
+                        ? 'bg-zinc-100 text-zinc-800 ring-1 ring-zinc-300'
+                        : 'bg-white text-zinc-800 ring-1 ring-zinc-900/10'
+                      : isPause
+                        ? 'bg-zinc-100/60 text-zinc-800 ring-1 ring-zinc-300'
+                        : 'bg-white/60 text-zinc-800 ring-1 ring-zinc-900/10';
 
                   return (
                     <div
@@ -188,16 +200,27 @@ export function ProjectRow({
                       <div className="flex h-full min-w-0 items-center justify-start gap-2 overflow-hidden">
                         {assignedEmployees.length > 0 && (
                           <div className="flex shrink-0 items-center gap-1.5">
-                            {assignedEmployees.map((emp, idx) => (
-                              <div
-                                key={emp.id}
-                                className={`flex h-4 min-w-4 max-w-12 items-center justify-center gap-0.5 rounded-full px-1 ${avatarClass}`}
-                                title={emp.name}
-                              >
-                                <span className="truncate text-[9px] font-semibold">{getFirstName(emp.name)}</span>
-                                {idx === 0 && <span className="h-1 w-1 shrink-0 rounded-full bg-black" aria-hidden />}
-                              </div>
-                            ))}
+                            {assignedEmployees.map((emp, idx) => {
+                              const isLead = venture.primary_contact_id != null ? emp.id === venture.primary_contact_id : idx === 0;
+                              return (
+                                <div
+                                  key={emp.id}
+                                  className={`flex h-4 min-w-4 max-w-12 items-center justify-center gap-0.5 rounded-full px-1 ${getAvatarClass(isLead)}`}
+                                  title={emp.name}
+                                  onContextMenu={
+                                    onSetProjectLead
+                                      ? (e) => {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          onSetProjectLead(venture.id, emp.id);
+                                        }
+                                      : undefined
+                                  }
+                                >
+                                  <span className="truncate text-[9px] font-semibold">{getFirstName(emp.name)}</span>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -216,8 +239,8 @@ export function ProjectRow({
 
   return (
     <div>
-      <div className="h-6" aria-hidden />
-      <div className="relative flex h-8 items-center group">
+      <div className="h-4" aria-hidden />
+      <div className="relative flex h-7 items-center group">
         <div
           className="absolute inset-0 cursor-pointer"
           onClick={(e) => {
@@ -260,6 +283,9 @@ export function ProjectRow({
                 onExpandClick={() => onExpandPhase(phase.id)}
                 onPauseResume={onPauseResume}
                 assignedPeople={assignedPeople}
+                primaryContactId={venture.primary_contact_id ?? undefined}
+                ventureId={venture.id}
+                onSetProjectLead={onSetProjectLead}
               />
             );
           })}
@@ -358,6 +384,8 @@ export function ProjectRow({
                   onRefresh={onRefresh}
                   onActivityAdd={onActivityAdd}
                   onAddPause={onAddPause}
+                  primaryContactId={venture.primary_contact_id ?? undefined}
+                  onSetProjectLead={onSetProjectLead}
                 />
               </div>
             );

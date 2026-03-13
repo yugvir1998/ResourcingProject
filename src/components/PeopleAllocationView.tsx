@@ -173,6 +173,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
   const [milestones, setMilestones] = useState<{ target_date: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const hasScrolledToTodayRef = useRef(false);
   const sync = useTimelineSyncOptional();
@@ -388,10 +389,29 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
 
   return (
     <section>
-      <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold tracking-tight text-zinc-900">
-        <span className="h-2 w-2 rounded-full bg-emerald-500" />
-        People Allocation
-      </h2>
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        className="mb-2 flex w-full items-center gap-2 text-left"
+      >
+        <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-zinc-900">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          People Allocation
+        </h2>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className={`shrink-0 text-zinc-500 transition-transform ${collapsed ? '-rotate-90' : ''}`}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {!collapsed && (
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm ring-1 ring-zinc-900/5">
         <div
           ref={(el) => {
@@ -622,6 +642,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
           </div>
         </div>
       </div>
+      )}
     </section>
   );
 }

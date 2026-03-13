@@ -16,6 +16,10 @@ interface PhaseBarProps {
   onPauseResume?: (phaseId: number) => void;
   /** People assigned to this phase (for showing initials on the bar) */
   assignedPeople?: { id: number; name: string }[];
+  /** Project lead employee id (for lead styling) */
+  primaryContactId?: number | null;
+  ventureId?: number;
+  onSetProjectLead?: (ventureId: number, employeeId: number) => void;
 }
 
 function dateToOffset(date: Date, startDate: Date, totalDays: number): number {
@@ -46,6 +50,9 @@ export function PhaseBar({
   onExpandClick,
   onPauseResume,
   assignedPeople = [],
+  primaryContactId,
+  ventureId,
+  onSetProjectLead,
 }: PhaseBarProps) {
   const phaseStart = new Date(phase.start_date);
   const phaseEnd = new Date(phase.end_date);
@@ -143,17 +150,38 @@ export function PhaseBar({
       <span className={`absolute inset-0 flex items-center justify-center gap-2 truncate px-3 text-xs font-medium ${textColor}`}>
         {assignedPeople.length > 0 ? (
           <span className="flex shrink-0 items-center gap-1.5">
-            {assignedPeople.map((p, idx) => {
+            {[...assignedPeople]
+              .sort((a, b) => {
+                if (primaryContactId != null && a.id === primaryContactId) return -1;
+                if (primaryContactId != null && b.id === primaryContactId) return 1;
+                return 0;
+              })
+              .map((p, idx) => {
               const isSmall = assignedPeople.length >= 5;
-              const isLead = idx === 0;
+              const isLead = primaryContactId != null ? p.id === primaryContactId : idx === 0;
+              const bgClass = isLead
+                ? isPlanned || isPause
+                  ? 'bg-zinc-300 text-zinc-700'
+                  : 'bg-white text-zinc-800'
+                : isPlanned || isPause
+                  ? 'bg-zinc-300/60 text-zinc-700'
+                  : 'bg-white/60 text-white';
+              const sizeClass = isSmall ? 'h-3 min-w-3 text-[8px]' : 'h-4 min-w-4 text-[9px]';
+              const handleContextMenu = ventureId != null && onSetProjectLead
+                ? (e: React.MouseEvent) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onSetProjectLead(ventureId, p.id);
+                  }
+                : undefined;
               return (
                 <span
                   key={p.id}
-                  className={`flex max-w-12 items-center justify-center gap-0.5 overflow-hidden rounded-full px-1.5 font-medium ${isSmall ? 'h-3 min-w-3 text-[8px]' : 'h-4 min-w-4 text-[9px]'} ${isPlanned || isPause ? 'bg-zinc-300/80 text-zinc-700' : 'bg-white/30 text-white'}`}
+                  className={'flex max-w-12 items-center justify-center gap-0.5 overflow-hidden rounded-full px-1.5 font-medium ' + sizeClass + ' ' + bgClass}
                   title={p.name}
+                  onContextMenu={handleContextMenu}
                 >
                   <span className="truncate">{getFirstName(p.name)}</span>
-                  {isLead && <span className="h-1 w-1 shrink-0 rounded-full bg-black" aria-hidden />}
                 </span>
               );
             })}
