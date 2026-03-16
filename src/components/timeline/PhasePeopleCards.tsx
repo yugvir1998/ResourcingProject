@@ -8,7 +8,7 @@ import { AddActivityDropdown } from './AddActivityDropdown';
 interface PhasePeopleCardsProps {
   phase: VenturePhase;
   allocations: Allocation[];
-  employees: { id: number; name: string }[];
+  employees: { id: number; name: string; scenario_tag?: 'nitwit' | 'potential_hire' | null }[];
   ventureId: number;
   leftOffsetPct?: number;
   widthPct?: number;
@@ -76,10 +76,11 @@ export function PhasePeopleCards({
         const emp = employees.find((e) => e.id === a.employee_id);
         const isEditing = editingId === a.id;
         const isLead = primaryContactId != null ? a.employee_id === primaryContactId : idx === 0;
+        const isPotentialHire = emp?.scenario_tag === 'potential_hire';
         return (
           <div
             key={a.id}
-            className={`flex items-center gap-1 rounded border border-zinc-200 px-1.5 py-0.5 text-[11px] shadow-sm ${isLead ? 'bg-white' : 'bg-white/60'}`}
+            className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] shadow-sm ${isPotentialHire ? 'border border-dashed border-zinc-300' : 'border border-zinc-200'} ${isLead ? 'bg-white' : 'bg-white/60'}`}
           >
             {onSetProjectLead && (
               <button

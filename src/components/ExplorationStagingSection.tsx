@@ -45,6 +45,7 @@ interface VentureAllocation {
 
 interface ExplorationStagingCardProps {
   venture: Venture;
+  index: number;
   teamMembers: { id: number; name: string }[];
   ventureAllocations: VentureAllocation[];
   employees: { id: number; name: string }[];
@@ -53,7 +54,7 @@ interface ExplorationStagingCardProps {
   onDelete: (id: number) => Promise<boolean>;
 }
 
-function ExplorationStagingCard({ venture, teamMembers, ventureAllocations, employees, onUpdate, onUpdateTeam, onDelete }: ExplorationStagingCardProps) {
+function ExplorationStagingCard({ venture, index, teamMembers, ventureAllocations, employees, onUpdate, onUpdateTeam, onDelete }: ExplorationStagingCardProps) {
   const toast = useToast();
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(venture.name);
@@ -136,7 +137,10 @@ function ExplorationStagingCard({ venture, teamMembers, ventureAllocations, empl
         className={`group flex min-w-[200px] max-w-[240px] shrink-0 cursor-grab flex-col rounded-lg border border-zinc-200 border-l-4 border-l-teal-400 bg-white p-2 shadow-sm ring-1 ring-zinc-900/5 transition-all hover:shadow-md active:cursor-grabbing ${isDragging ? 'opacity-50 ring-2 ring-teal-400' : ''}`}
       >
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1 font-medium text-zinc-900">{venture.name}</div>
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span className="shrink-0 text-[10px] font-medium tabular-nums text-zinc-400" aria-label={`Position ${index}`}>{index}</span>
+            <div className="min-w-0 flex-1 font-medium text-zinc-900">{venture.name}</div>
+          </div>
           <div
             className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100"
             onPointerDown={(e) => e.stopPropagation()}
@@ -479,7 +483,7 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
       <section>
         <h2 className="mb-1.5 flex items-center gap-2 text-lg font-semibold tracking-tight text-zinc-900">
           <span className="h-1.5 w-1.5 rounded-full bg-teal-400" />
-          Exploration ({ventures.length})
+          Pre-Exploration ({ventures.length})
         </h2>
         <div className="flex gap-2 overflow-x-auto pb-2">
           {[1, 2, 3].map((i) => (
@@ -498,7 +502,7 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
       <div className="mb-1.5 flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-zinc-900">
           <span className="h-1.5 w-1.5 rounded-full bg-teal-400" />
-          Exploration ({ventures.length})
+          Pre-Exploration ({ventures.length})
         </h2>
         <button
           type="button"
@@ -511,10 +515,11 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <SortableContext items={ventures.map((v) => `exploration-${v.id}`)} strategy={horizontalListSortingStrategy}>
           <div className="flex gap-2 overflow-x-auto pb-2">
-            {ventures.map((v) => (
+            {ventures.map((v, i) => (
               <ExplorationStagingCard
                 key={v.id}
                 venture={v}
+                index={i + 1}
                 teamMembers={getTeamForVenture(v.id)}
                 ventureAllocations={getVentureAllocations(v.id)}
                 employees={employees}

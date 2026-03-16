@@ -28,6 +28,7 @@ interface VentureAllocation {
 
 interface SupportVentureCardProps {
   venture: Venture;
+  index: number;
   teamMembers: { id: number; name: string }[];
   ventureAllocations: VentureAllocation[];
   employees: { id: number; name: string }[];
@@ -45,7 +46,7 @@ function getWeekStartString(d: Date): string {
   return monday.toISOString().slice(0, 10);
 }
 
-function SupportVentureCard({ venture, teamMembers, ventureAllocations, employees, nextMilestoneDate, onUpdate, onUpdateTeam, onDelete }: SupportVentureCardProps) {
+function SupportVentureCard({ venture, index, teamMembers, ventureAllocations, employees, nextMilestoneDate, onUpdate, onUpdateTeam, onDelete }: SupportVentureCardProps) {
   const toast = useToast();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `support-${venture.id}`,
@@ -120,7 +121,10 @@ function SupportVentureCard({ venture, teamMembers, ventureAllocations, employee
         className={`group flex min-w-[200px] max-w-[240px] shrink-0 cursor-grab flex-col rounded-lg border border-zinc-200 border-l-4 border-l-cyan-400 bg-white p-2 shadow-sm ring-1 ring-zinc-900/5 transition-all hover:shadow-md active:cursor-grabbing ${isDragging ? 'opacity-50 ring-2 ring-cyan-400' : ''}`}
       >
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1 font-medium text-zinc-900">{venture.name}</div>
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span className="shrink-0 text-[10px] font-medium tabular-nums text-zinc-400" aria-label={`Position ${index}`}>{index}</span>
+            <div className="min-w-0 flex-1 font-medium text-zinc-900">{venture.name}</div>
+          </div>
           <div
             className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100"
             onPointerDown={(e) => e.stopPropagation()}
@@ -469,10 +473,11 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <SortableContext items={ventures.map((v) => `support-${v.id}`)} strategy={horizontalListSortingStrategy}>
       <div className="flex flex-wrap gap-2">
-        {ventures.map((v) => (
+        {ventures.map((v, i) => (
           <SupportVentureCard
             key={v.id}
             venture={v}
+            index={i + 1}
             teamMembers={getTeamForVenture(v.id)}
             ventureAllocations={getVentureAllocations(v.id)}
             employees={employees}
