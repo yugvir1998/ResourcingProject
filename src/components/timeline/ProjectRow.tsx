@@ -51,7 +51,7 @@ interface ProjectRowProps {
   phaseActivities: PhaseActivity[];
   milestones: HiringMilestone[];
   allocations: Allocation[];
-  employees: { id: number; name: string }[];
+  employees: { id: number; name: string; scenario_tag?: string | null }[];
   startDate: Date;
   endDate: Date;
   totalDays: number;

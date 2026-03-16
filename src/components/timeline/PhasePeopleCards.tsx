@@ -76,11 +76,12 @@ export function PhasePeopleCards({
         const emp = employees.find((e) => e.id === a.employee_id);
         const isEditing = editingId === a.id;
         const isLead = primaryContactId != null ? a.employee_id === primaryContactId : idx === 0;
-        const isPotentialHire = emp?.scenario_tag === 'potential_hire';
+        const isPotentialHire = String(emp?.scenario_tag ?? '').toLowerCase() === 'potential_hire';
         return (
           <div
             key={a.id}
-            className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] shadow-sm ${isPotentialHire ? 'border border-dashed border-amber-300 bg-amber-50' : 'border border-zinc-200'} ${!isPotentialHire && (isLead ? 'bg-white' : 'bg-white/60')}`}
+            title={isPotentialHire ? 'Potential hire' : undefined}
+            className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] shadow-sm ${isPotentialHire ? 'border-2 border-dashed border-amber-400 bg-amber-100' : 'border border-zinc-200'} ${!isPotentialHire && (isLead ? 'bg-white' : 'bg-white/60')}`}
           >
             {onSetProjectLead && (
               <button
