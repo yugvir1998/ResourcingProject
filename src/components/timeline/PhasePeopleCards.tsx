@@ -8,7 +8,7 @@ import { AddActivityDropdown } from './AddActivityDropdown';
 interface PhasePeopleCardsProps {
   phase: VenturePhase;
   allocations: Allocation[];
-  employees: { id: number; name: string; scenario_tag?: 'nitwit' | 'potential_hire' | null }[];
+  employees: { id: number; name: string; scenario_tag?: string | null }[];
   ventureId: number;
   leftOffsetPct?: number;
   widthPct?: number;
