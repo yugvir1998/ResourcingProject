@@ -24,6 +24,8 @@ interface VentureAllocation {
   id: number;
   employee_id: number;
   venture_id: number;
+  week_start: string;
+  fte_percentage: number;
 }
 
 interface SupportVentureCardProps {
@@ -34,7 +36,12 @@ interface SupportVentureCardProps {
   employees: { id: number; name: string }[];
   nextMilestoneDate: string | null;
   onUpdate: (id: number, updates: Partial<Venture>) => Promise<{ ok: boolean; error?: string }>;
-  onUpdateTeam: (ventureId: number, addEmployeeIds: number[], removeAllocationIds: number[]) => Promise<{ ok: boolean; error?: string }>;
+  onUpdateTeam: (
+    ventureId: number,
+    selectedEmployeeIds: number[],
+    removeAllocationIds: number[],
+    options: { startDate: string; endDate: string; fteByEmployee: Record<number, number> }
+  ) => Promise<{ ok: boolean; error?: string }>;
   onDelete: (id: number) => Promise<boolean>;
 }
 
@@ -44,6 +51,17 @@ function getWeekStartString(d: Date): string {
   const monday = new Date(d);
   monday.setDate(diff);
   return monday.toISOString().slice(0, 10);
+}
+
+function getWeekStartsBetween(startDate: Date, endDate: Date): string[] {
+  const weeks: string[] = [];
+  const d = new Date(startDate);
+  const end = new Date(endDate);
+  while (d <= end) {
+    weeks.push(getWeekStartString(d));
+    d.setDate(d.getDate() + 7);
+  }
+  return weeks;
 }
 
 function SupportVentureCard({ venture, index, teamMembers, ventureAllocations, employees, nextMilestoneDate, onUpdate, onUpdateTeam, onDelete }: SupportVentureCardProps) {
@@ -60,17 +78,34 @@ function SupportVentureCard({ venture, index, teamMembers, ventureAllocations, e
   const [editNotes, setEditNotes] = useState(venture.notes || '');
   const [editOneMetric, setEditOneMetric] = useState(venture.one_metric_that_matters || '');
   const [editSelectedEmployeeIds, setEditSelectedEmployeeIds] = useState<number[]>([]);
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editEndDate, setEditEndDate] = useState('');
+  const [editFteByEmployee, setEditFteByEmployee] = useState<Record<number, number>>({});
   const [editError, setEditError] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const toggleEmployee = (id: number) => {
-    setEditSelectedEmployeeIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setEditSelectedEmployeeIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      if (next.includes(id) && editFteByEmployee[id] == null) {
+        setEditFteByEmployee((f) => ({ ...f, [id]: 50 }));
+      }
+      return next;
+    });
+  };
+
+  const setFteForEmployee = (empId: number, fte: number) => {
+    const clamped = Math.min(100, Math.max(0, fte));
+    setEditFteByEmployee((prev) => ({ ...prev, [empId]: clamped }));
   };
 
   const handleSave = async () => {
     setEditError(null);
+    if (editEndDate < editStartDate) {
+      setEditError('End date must be on or after start date');
+      toast.show('End date must be on or after start date');
+      return;
+    }
     const ventureResult = await onUpdate(venture.id, {
       name: editName.trim(),
       notes: editNotes.trim() || null,
@@ -83,14 +118,32 @@ function SupportVentureCard({ venture, index, teamMembers, ventureAllocations, e
       if (process.env.NODE_ENV === 'development') console.error('Venture update failed:', ventureResult.error);
       return;
     }
-    const currentEmpIds = new Set(ventureAllocations.map((a) => a.employee_id));
-    const newEmpIds = new Set(editSelectedEmployeeIds);
-    const addIds = [...newEmpIds].filter((id) => !currentEmpIds.has(id));
     const removeIds = ventureAllocations
-      .filter((a) => !newEmpIds.has(a.employee_id))
+      .filter((a) => !editSelectedEmployeeIds.includes(a.employee_id))
       .map((a) => a.id);
-    if (addIds.length > 0 || removeIds.length > 0) {
-      const teamResult = await onUpdateTeam(venture.id, addIds, removeIds);
+    const fteByEmployee: Record<number, number> = {};
+    for (const empId of editSelectedEmployeeIds) {
+      fteByEmployee[empId] = editFteByEmployee[empId] ?? 50;
+    }
+    const hasTeamChanges =
+      removeIds.length > 0 ||
+      editSelectedEmployeeIds.some((empId) => {
+        const oldAllocs = ventureAllocations.filter((a) => a.employee_id === empId);
+        const oldWeekStarts = oldAllocs.map((a) => a.week_start).sort();
+        const oldStart = oldWeekStarts[0];
+        const oldEnd = oldWeekStarts[oldWeekStarts.length - 1];
+        const oldFte = oldAllocs[0]?.fte_percentage ?? 50;
+        const newFte = fteByEmployee[empId] ?? 50;
+        const rangeChanged = !oldStart || oldStart !== editStartDate || oldEnd !== editEndDate;
+        const fteChanged = oldFte !== newFte;
+        return rangeChanged || fteChanged;
+      });
+    if (hasTeamChanges) {
+      const teamResult = await onUpdateTeam(venture.id, editSelectedEmployeeIds, removeIds, {
+        startDate: editStartDate,
+        endDate: editEndDate,
+        fteByEmployee,
+      });
       if (!teamResult.ok) {
         const errMsg = teamResult.error || 'Failed to save team';
         setEditError(errMsg);
@@ -135,7 +188,26 @@ function SupportVentureCard({ venture, index, teamMembers, ventureAllocations, e
                 setEditName(venture.name);
                 setEditNotes(venture.notes || '');
                 setEditOneMetric(venture.one_metric_that_matters || '');
-                setEditSelectedEmployeeIds(ventureAllocations.map((a) => a.employee_id));
+                const empIds = [...new Set(ventureAllocations.map((a) => a.employee_id))];
+                setEditSelectedEmployeeIds(empIds);
+                const today = new Date().toISOString().slice(0, 10);
+                const twoMonths = new Date();
+                twoMonths.setMonth(twoMonths.getMonth() + 2);
+                const defaultEnd = twoMonths.toISOString().slice(0, 10);
+                if (ventureAllocations.length === 0) {
+                  setEditStartDate(today);
+                  setEditEndDate(defaultEnd);
+                  setEditFteByEmployee({});
+                } else {
+                  const weekStarts = ventureAllocations.map((a) => a.week_start).sort();
+                  setEditStartDate(weekStarts[0] ?? today);
+                  setEditEndDate(weekStarts[weekStarts.length - 1] ?? defaultEnd);
+                  const fteByEmp: Record<number, number> = {};
+                  for (const a of ventureAllocations) {
+                    if (fteByEmp[a.employee_id] == null) fteByEmp[a.employee_id] = a.fte_percentage;
+                  }
+                  setEditFteByEmployee(fteByEmp);
+                }
                 setEditError(null);
                 setEditing(true);
               }}
@@ -230,6 +302,27 @@ function SupportVentureCard({ venture, index, teamMembers, ventureAllocations, e
                 />
               </div>
               <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Time range</label>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <input
+                      type="date"
+                      value={editStartDate}
+                      onChange={(e) => setEditStartDate(e.target.value)}
+                      className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <input
+                      type="date"
+                      value={editEndDate}
+                      onChange={(e) => setEditEndDate(e.target.value)}
+                      className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div>
                 <label className="mb-1 block text-sm font-medium text-zinc-700">Team members</label>
                 <div className="max-h-40 overflow-y-auto rounded-lg border border-zinc-300 p-2">
                   {employees.length === 0 ? (
@@ -237,18 +330,31 @@ function SupportVentureCard({ venture, index, teamMembers, ventureAllocations, e
                   ) : (
                     <div className="space-y-1">
                       {employees.map((emp) => (
-                        <label
+                        <div
                           key={emp.id}
-                          className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-zinc-50"
+                          className="flex items-center gap-2 rounded px-2 py-1 hover:bg-zinc-50"
                         >
-                          <input
-                            type="checkbox"
-                            checked={editSelectedEmployeeIds.includes(emp.id)}
-                            onChange={() => toggleEmployee(emp.id)}
-                            className="rounded border-zinc-300"
-                          />
-                          <span className="text-sm text-zinc-700">{emp.name}</span>
-                        </label>
+                          <label className="flex cursor-pointer flex-1 items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={editSelectedEmployeeIds.includes(emp.id)}
+                              onChange={() => toggleEmployee(emp.id)}
+                              className="rounded border-zinc-300"
+                            />
+                            <span className="text-sm text-zinc-700">{emp.name}</span>
+                          </label>
+                          {editSelectedEmployeeIds.includes(emp.id) && (
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              value={editFteByEmployee[emp.id] ?? 50}
+                              onChange={(e) => setFteForEmployee(emp.id, Number(e.target.value) || 0)}
+                              className="w-14 rounded border border-zinc-300 px-2 py-1 text-right text-sm tabular-nums"
+                            />
+                          )}
+                          {editSelectedEmployeeIds.includes(emp.id) && <span className="text-xs text-zinc-500">%</span>}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -297,7 +403,9 @@ interface Milestone {
 
 export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVenturesSectionProps) {
   const [ventures, setVentures] = useState<Venture[]>([]);
-  const [allocations, setAllocations] = useState<{ id: number; employee_id: number; venture_id: number }[]>([]);
+  const [allocations, setAllocations] = useState<
+    { id: number; employee_id: number; venture_id: number; week_start: string; fte_percentage: number; phase_id?: number | null }[]
+  >([]);
   const [employees, setEmployees] = useState<{ id: number; name: string }[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
@@ -328,8 +436,11 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
     return () => { cancelled = true; };
   }, [refreshTrigger]);
 
+  /** Support allocations have phase_id null; phase-specific allocations (Timeline) have phase_id set */
+  const isSupportAllocation = (a: { phase_id?: number | null }) => a.phase_id == null;
+
   const getTeamForVenture = (ventureId: number): { id: number; name: string }[] => {
-    const empIds = [...new Set(allocations.filter((a) => a.venture_id === ventureId).map((a) => a.employee_id))];
+    const empIds = [...new Set(allocations.filter((a) => a.venture_id === ventureId && isSupportAllocation(a)).map((a) => a.employee_id))];
     return empIds
       .map((id) => employees.find((e) => e.id === id))
       .filter((e): e is { id: number; name: string } => e != null);
@@ -370,10 +481,12 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
 
   const updateTeam = async (
     ventureId: number,
-    addEmployeeIds: number[],
-    removeAllocationIds: number[]
+    selectedEmployeeIds: number[],
+    removeAllocationIds: number[],
+    options: { startDate: string; endDate: string; fteByEmployee: Record<number, number> }
   ): Promise<{ ok: boolean; error?: string }> => {
-    const weekStart = getWeekStartString(new Date());
+    const { startDate, endDate, fteByEmployee } = options;
+    const weekStarts = getWeekStartsBetween(new Date(startDate), new Date(endDate));
     try {
       for (const id of removeAllocationIds) {
         const res = await fetch(`/api/allocations/${id}`, { method: 'DELETE' });
@@ -382,20 +495,33 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
           return { ok: false, error: typeof data?.error === 'string' ? data.error : 'Failed to remove team member' };
         }
       }
-      for (const empId of addEmployeeIds) {
-        const res = await fetch('/api/allocations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            venture_id: ventureId,
-            employee_id: empId,
-            fte_percentage: 50,
-            week_start: weekStart,
-          }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          return { ok: false, error: typeof data?.error === 'string' ? data.error : 'Failed to add team member' };
+      for (const empId of selectedEmployeeIds) {
+        const toDelete = allocations
+          .filter((a) => a.venture_id === ventureId && a.employee_id === empId && isSupportAllocation(a))
+          .map((a) => a.id);
+        for (const id of toDelete) {
+          const res = await fetch(`/api/allocations/${id}`, { method: 'DELETE' });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            return { ok: false, error: typeof data?.error === 'string' ? data.error : 'Failed to update allocations' };
+          }
+        }
+        const fte = Math.min(100, Math.max(0, fteByEmployee[empId] ?? 50));
+        for (const weekStart of weekStarts) {
+          const res = await fetch('/api/allocations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              venture_id: ventureId,
+              employee_id: empId,
+              fte_percentage: fte,
+              week_start: weekStart,
+            }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            return { ok: false, error: typeof data?.error === 'string' ? data.error : 'Failed to add team member' };
+          }
         }
       }
       const aRes = await fetch('/api/allocations');
@@ -410,7 +536,7 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
   };
 
   const getVentureAllocations = (ventureId: number) =>
-    allocations.filter((a) => a.venture_id === ventureId);
+    allocations.filter((a) => a.venture_id === ventureId && isSupportAllocation(a));
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })

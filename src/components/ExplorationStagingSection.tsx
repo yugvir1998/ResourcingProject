@@ -448,7 +448,7 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
             body: JSON.stringify({
               venture_id: ventureId,
               employee_id: empId,
-              fte_percentage: 50,
+              fte_percentage: 5,
               week_start: weekStart,
             }),
           });
@@ -624,7 +624,7 @@ function AddExplorationVentureForm({
               body: JSON.stringify({
                 venture_id: venture.id,
                 employee_id: empId,
-                fte_percentage: 50,
+                fte_percentage: 5,
                 week_start: weekStart,
               }),
             });

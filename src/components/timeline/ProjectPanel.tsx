@@ -242,6 +242,7 @@ export function ProjectPanel({
 
   const handleAddPerson = async (employeeId: number, phaseId: number) => {
     const weekStart = getWeekStart(new Date());
+    const fte = venture.status === 'exploration_staging' ? 5 : 50;
     const res = await fetch('/api/allocations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -249,7 +250,7 @@ export function ProjectPanel({
         employee_id: employeeId,
         venture_id: venture.id,
         phase_id: phaseId,
-        fte_percentage: 50,
+        fte_percentage: fte,
         week_start: weekStart,
       }),
     });

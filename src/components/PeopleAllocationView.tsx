@@ -104,12 +104,66 @@ function buildAllocationSegments(
   return segments;
 }
 
+const PRE_EXPLORATION_VENTURE: Venture = { id: -1, name: 'Pre Exploration', status: 'exploration_staging' } as Venture;
+
+function mergeAllocationSegments(segments: AllocationSegment[]): AllocationSegment[] {
+  if (segments.length === 0) return [];
+  const preExploration = segments.filter((s) => s.venture.status === 'exploration_staging');
+  const other = segments.filter((s) => s.venture.status !== 'exploration_staging');
+
+  const merged: AllocationSegment[] = [];
+
+  if (preExploration.length > 0) {
+    const startWeek = preExploration.reduce((min, s) => (s.startWeek < min ? s.startWeek : min), preExploration[0].startWeek);
+    const endWeek = preExploration.reduce((max, s) => (s.endWeek > max ? s.endWeek : max), preExploration[0].endWeek);
+    const preExplorationFteByVenture = new Map<number, number>();
+    for (const seg of preExploration) {
+      if (!preExplorationFteByVenture.has(seg.venture.id)) {
+        preExplorationFteByVenture.set(seg.venture.id, seg.fte);
+      }
+    }
+    const totalFte = [...preExplorationFteByVenture.values()].reduce((s, f) => s + f, 0);
+    merged.push({
+      venture: PRE_EXPLORATION_VENTURE,
+      phase: null,
+      fte: totalFte,
+      fteDisplay: `${totalFte}%`,
+      startWeek,
+      endWeek,
+    });
+  }
+
+  const byVenture = new Map<number, AllocationSegment[]>();
+  for (const seg of other) {
+    if (!byVenture.has(seg.venture.id)) byVenture.set(seg.venture.id, []);
+    byVenture.get(seg.venture.id)!.push(seg);
+  }
+  for (const [, group] of byVenture) {
+    const startWeek = group.reduce((min, s) => (s.startWeek < min ? s.startWeek : min), group[0].startWeek);
+    const endWeek = group.reduce((max, s) => (s.endWeek > max ? s.endWeek : max), group[0].endWeek);
+    const fteMin = Math.min(...group.map((s) => s.fte));
+    const fteMax = Math.max(...group.map((s) => s.fte));
+    const fteDisplay = fteMin === fteMax ? `${fteMin}%` : `${fteMin}-${fteMax}%`;
+    merged.push({
+      venture: group[0].venture,
+      phase: group[0].phase,
+      fte: group[0].fte,
+      fteDisplay,
+      startWeek,
+      endWeek,
+    });
+  }
+  merged.sort((a, b) => a.startWeek.localeCompare(b.startWeek));
+  return merged;
+}
+
 type VentureBreakdown = { venture: Venture; phase: VenturePhase | null; fte: number };
 
 type AllocationSegment = {
   venture: Venture;
   phase: VenturePhase | null;
   fte: number;
+  fteDisplay?: string;
   startWeek: string;
   endWeek: string;
 };
@@ -141,9 +195,9 @@ function PersonAllocationExpandableRow({
             <div className="sticky left-0 z-10 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50/95 px-4 py-1.5 pl-8">
               <span
                 className="truncate text-xs text-zinc-700"
-                title={`${seg.venture.name}${phaseLabel} - ${seg.fte}%`}
+                title={`${seg.venture.name}${phaseLabel} - ${seg.fteDisplay ?? `${seg.fte}%`}`}
               >
-                {seg.venture.name} - {seg.fte}%
+                {seg.venture.name} - {seg.fteDisplay ?? `${seg.fte}%`}
               </span>
             </div>
             <div className="relative flex-1 min-w-0 py-1.5" style={{ width: gridWidth }}>
@@ -174,6 +228,14 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const [auditResult, setAuditResult] = useState<{
+    orphanedPhase: { allocationIds: number[] };
+    orphanedVenture: { allocationIds: number[] };
+    orphanedEmployee: { allocationIds: number[] };
+    duplicates: { groups: { ids: number[]; totalFte: number }[] };
+  } | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditFixing, setAuditFixing] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const hasScrolledToTodayRef = useRef(false);
   const sync = useTimelineSyncOptional();
@@ -378,6 +440,38 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
     }
   });
 
+  const runAudit = async () => {
+    setAuditLoading(true);
+    setAuditResult(null);
+    try {
+      const res = await fetch('/api/allocations/audit', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setAuditResult({
+          orphanedPhase: data.orphanedPhase ?? { allocationIds: [] },
+          orphanedVenture: data.orphanedVenture ?? { allocationIds: [] },
+          orphanedEmployee: data.orphanedEmployee ?? { allocationIds: [] },
+          duplicates: data.duplicates ?? { groups: [] },
+        });
+      }
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  const runFix = async () => {
+    setAuditFixing(true);
+    try {
+      const res = await fetch('/api/allocations/audit?fix=true', { method: 'POST' });
+      if (res.ok) {
+        setAuditResult(null);
+        await fetchData();
+      }
+    } finally {
+      setAuditFixing(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="rounded-xl border border-zinc-200 bg-white p-8">
@@ -389,28 +483,40 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
 
   return (
     <section>
-      <button
-        type="button"
-        onClick={() => setCollapsed((c) => !c)}
-        className="mb-2 flex w-full items-center gap-2 text-left"
-      >
-        <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-zinc-900">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          People Allocation
-        </h2>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className={`shrink-0 text-zinc-500 transition-transform ${collapsed ? '-rotate-90' : ''}`}
+      <div className="mb-2 flex w-full items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="flex flex-1 items-center gap-2 text-left"
         >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
+          <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-zinc-900">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            People Allocation
+          </h2>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className={`shrink-0 text-zinc-500 transition-transform ${collapsed ? '-rotate-90' : ''}`}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={runAudit}
+            disabled={auditLoading}
+            className="shrink-0 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+          >
+            {auditLoading ? 'Auditing…' : 'Audit allocations'}
+          </button>
+        )}
+      </div>
       {!collapsed && (
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm ring-1 ring-zinc-900/5">
         <div
@@ -513,7 +619,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
             {employees.map((emp) => {
               const weekTotals = byEmployeeAndWeek.get(emp.id) ?? new Map();
               const isExpanded = expandedId === emp.id;
-              const segments = buildAllocationSegments(
+              const rawSegments = buildAllocationSegments(
                 allocations,
                 emp.id,
                 ventureMap,
@@ -521,6 +627,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
                 startDate.getTime(),
                 endDate.getTime()
               );
+              const segments = mergeAllocationSegments(rawSegments);
 
               return (
                 <div key={emp.id} className="last:[&>*:last-child]:border-b-0">
@@ -642,6 +749,67 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
           </div>
         </div>
       </div>
+      )}
+
+      {/* Audit modal */}
+      {auditResult && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm"
+          onClick={() => setAuditResult(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-zinc-900">Allocation Audit</h3>
+            <div className="mt-4 space-y-3 text-sm text-zinc-600">
+              <p>
+                <span className="font-medium text-zinc-700">Orphaned phase:</span>{' '}
+                {auditResult.orphanedPhase.allocationIds.length} allocation(s) with invalid phase_id
+              </p>
+              <p>
+                <span className="font-medium text-zinc-700">Orphaned venture:</span>{' '}
+                {auditResult.orphanedVenture.allocationIds.length} allocation(s) with invalid venture_id
+              </p>
+              <p>
+                <span className="font-medium text-zinc-700">Orphaned employee:</span>{' '}
+                {auditResult.orphanedEmployee.allocationIds.length} allocation(s) with invalid employee_id
+              </p>
+              <p>
+                <span className="font-medium text-zinc-700">Duplicates:</span>{' '}
+                {auditResult.duplicates.groups.length} group(s) with same employee, venture, week, phase
+              </p>
+              {auditResult.orphanedPhase.allocationIds.length === 0 &&
+                auditResult.orphanedVenture.allocationIds.length === 0 &&
+                auditResult.orphanedEmployee.allocationIds.length === 0 &&
+                auditResult.duplicates.groups.length === 0 && (
+                  <p className="text-emerald-600">No issues found.</p>
+                )}
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAuditResult(null)}
+                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                Close
+              </button>
+              {(auditResult.orphanedPhase.allocationIds.length > 0 ||
+                auditResult.orphanedVenture.allocationIds.length > 0 ||
+                auditResult.orphanedEmployee.allocationIds.length > 0 ||
+                auditResult.duplicates.groups.length > 0) && (
+                <button
+                  type="button"
+                  onClick={runFix}
+                  disabled={auditFixing}
+                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {auditFixing ? 'Fixing…' : 'Fix'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

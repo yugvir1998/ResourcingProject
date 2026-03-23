@@ -46,10 +46,21 @@ export async function POST(request: Request) {
       );
     }
 
+    // Pre-exploration (exploration_staging) ventures: enforce 5% per project
+    let effectiveFte = Math.min(100, Math.max(0, Number(fte_percentage))) || 0;
+    const { data: ventureRow } = await getSupabase()
+      .from('ventures')
+      .select('status')
+      .eq('id', venture_id)
+      .single();
+    if (ventureRow?.status === 'exploration_staging') {
+      effectiveFte = 5;
+    }
+
     const insertPayload: Record<string, unknown> = {
       employee_id,
       venture_id,
-      fte_percentage: Math.min(100, Math.max(0, Number(fte_percentage))) || 0,
+      fte_percentage: effectiveFte,
       week_start,
       notes: notes || null,
     };

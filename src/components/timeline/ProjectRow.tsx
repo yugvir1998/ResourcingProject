@@ -377,6 +377,7 @@ export function ProjectRow({
                   allocations={allocations.filter((a) => a.phase_id === phase.id)}
                   employees={employees}
                   ventureId={venture.id}
+                  ventureStatus={venture.status}
                   leftOffsetPct={0}
                   widthPct={100}
                   onUpdate={onAllocationUpdate}
