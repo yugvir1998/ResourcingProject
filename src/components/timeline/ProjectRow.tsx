@@ -173,7 +173,7 @@ export function ProjectRow({
                   const assignedIds = [...new Set(phaseAllocations.map((a) => a.employee_id))];
                   const assignedEmployees = assignedIds
                     .map((id) => employees.find((e) => e.id === id))
-                    .filter((e): e is { id: number; name: string } => e != null)
+                    .filter((e): e is { id: number; name: string; scenario_tag?: string | null } => e != null)
                     .sort((a, b) => {
                       if (venture.primary_contact_id != null && a.id === venture.primary_contact_id) return -1;
                       if (venture.primary_contact_id != null && b.id === venture.primary_contact_id) return 1;
@@ -202,11 +202,14 @@ export function ProjectRow({
                           <div className="flex shrink-0 items-center gap-1.5">
                             {assignedEmployees.map((emp, idx) => {
                               const isLead = venture.primary_contact_id != null ? emp.id === venture.primary_contact_id : idx === 0;
+                              const isPotentialHire = String(emp.scenario_tag ?? '').toLowerCase() === 'potential_hire';
                               return (
                                 <div
                                   key={emp.id}
-                                  className={`flex h-4 min-w-4 max-w-12 items-center justify-center gap-0.5 rounded-full px-1 ${getAvatarClass(isLead)}`}
-                                  title={emp.name}
+                                  className={`flex h-4 min-w-4 max-w-12 items-center justify-center gap-0.5 rounded-full px-1 text-zinc-800 ${
+                                    isPotentialHire ? 'potential-hire-outline-compact' : getAvatarClass(isLead)
+                                  }`}
+                                  title={isPotentialHire ? `${emp.name} (Potential hire)` : emp.name}
                                   onContextMenu={
                                     onSetProjectLead
                                       ? (e) => {
@@ -266,7 +269,7 @@ export function ProjectRow({
               ...new Map(
                 phaseAllocs
                   .map((a) => employees.find((e) => e.id === a.employee_id))
-                  .filter((e): e is { id: number; name: string } => e != null)
+                  .filter((e): e is { id: number; name: string; scenario_tag?: string | null } => e != null)
                   .map((e) => [e.id, e])
               ).values(),
             ];

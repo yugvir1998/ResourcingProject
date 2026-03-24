@@ -133,26 +133,35 @@ function mergeAllocationSegments(segments: AllocationSegment[]): AllocationSegme
     });
   }
 
-  const byVenture = new Map<number, AllocationSegment[]>();
-  for (const seg of other) {
-    if (!byVenture.has(seg.venture.id)) byVenture.set(seg.venture.id, []);
-    byVenture.get(seg.venture.id)!.push(seg);
-  }
-  for (const [, group] of byVenture) {
-    const startWeek = group.reduce((min, s) => (s.startWeek < min ? s.startWeek : min), group[0].startWeek);
-    const endWeek = group.reduce((max, s) => (s.endWeek > max ? s.endWeek : max), group[0].endWeek);
-    const fteMin = Math.min(...group.map((s) => s.fte));
-    const fteMax = Math.max(...group.map((s) => s.fte));
-    const fteDisplay = fteMin === fteMax ? `${fteMin}%` : `${fteMin}-${fteMax}%`;
-    merged.push({
-      venture: group[0].venture,
-      phase: group[0].phase,
-      fte: group[0].fte,
-      fteDisplay,
-      startWeek,
-      endWeek,
-    });
-  }
+  const supportSegments = other.filter((s) => s.venture.status === 'support' && s.phase === null);
+  const rest = other.filter((s) => !(s.venture.status === 'support' && s.phase === null));
+
+  const mergeByVentureId = (segs: AllocationSegment[], labelSupport: boolean) => {
+    const byVenture = new Map<number, AllocationSegment[]>();
+    for (const seg of segs) {
+      if (!byVenture.has(seg.venture.id)) byVenture.set(seg.venture.id, []);
+      byVenture.get(seg.venture.id)!.push(seg);
+    }
+    for (const [, group] of byVenture) {
+      const startWeek = group.reduce((min, s) => (s.startWeek < min ? s.startWeek : min), group[0].startWeek);
+      const endWeek = group.reduce((max, s) => (s.endWeek > max ? s.endWeek : max), group[0].endWeek);
+      const fteMin = Math.min(...group.map((s) => s.fte));
+      const fteMax = Math.max(...group.map((s) => s.fte));
+      const fteDisplay = fteMin === fteMax ? `${fteMin}%` : `${fteMin}-${fteMax}%`;
+      const v = group[0].venture;
+      merged.push({
+        venture: labelSupport ? { ...v, name: `Support - ${v.name}` } : v,
+        phase: group[0].phase,
+        fte: group[0].fte,
+        fteDisplay,
+        startWeek,
+        endWeek,
+      });
+    }
+  };
+
+  mergeByVentureId(supportSegments, true);
+  mergeByVentureId(rest, false);
   merged.sort((a, b) => a.startWeek.localeCompare(b.startWeek));
   return merged;
 }

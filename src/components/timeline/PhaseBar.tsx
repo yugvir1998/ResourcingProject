@@ -15,7 +15,7 @@ interface PhaseBarProps {
   onExpandClick?: () => void;
   onPauseResume?: (phaseId: number) => void;
   /** People assigned to this phase (for showing initials on the bar) */
-  assignedPeople?: { id: number; name: string }[];
+  assignedPeople?: { id: number; name: string; scenario_tag?: string | null }[];
   /** Project lead employee id (for lead styling) */
   primaryContactId?: number | null;
   ventureId?: number;
@@ -159,13 +159,16 @@ export function PhaseBar({
               .map((p, idx) => {
               const isSmall = assignedPeople.length >= 5;
               const isLead = primaryContactId != null ? p.id === primaryContactId : idx === 0;
-              const bgClass = isLead
-                ? isPlanned || isPause
-                  ? 'bg-zinc-300 text-zinc-700'
-                  : 'bg-white text-zinc-800'
-                : isPlanned || isPause
-                  ? 'bg-zinc-300/60 text-zinc-700'
-                  : 'bg-white/60 text-white';
+              const isPotentialHire = String(p.scenario_tag ?? '').toLowerCase() === 'potential_hire';
+              const bgClass = isPotentialHire
+                ? 'potential-hire-outline-compact text-zinc-800'
+                : isLead
+                  ? isPlanned || isPause
+                    ? 'bg-zinc-300 text-zinc-700'
+                    : 'bg-white text-zinc-800'
+                  : isPlanned || isPause
+                    ? 'bg-zinc-300/60 text-zinc-700'
+                    : 'bg-white/60 text-white';
               const sizeClass = isSmall ? 'h-3 min-w-3 text-[8px]' : 'h-4 min-w-4 text-[9px]';
               const handleContextMenu = ventureId != null && onSetProjectLead
                 ? (e: React.MouseEvent) => {
@@ -178,7 +181,7 @@ export function PhaseBar({
                 <span
                   key={p.id}
                   className={'flex max-w-12 items-center justify-center gap-0.5 overflow-hidden rounded-full px-1.5 font-medium ' + sizeClass + ' ' + bgClass}
-                  title={p.name}
+                  title={isPotentialHire ? `${p.name} (Potential hire)` : p.name}
                   onContextMenu={handleContextMenu}
                 >
                   <span className="truncate">{getFirstName(p.name)}</span>
