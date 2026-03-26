@@ -14,8 +14,6 @@ import {
 } from './timeline/TimeAxis';
 import { useTimelineSyncOptional } from '@/contexts/TimelineSyncContext';
 
-const FALLBACK_WEEK_COLUMN_WIDTH = 72;
-
 function getWeekStartString(d: Date): string {
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
@@ -48,6 +46,99 @@ function getSegmentWidthPct(startWeek: string, endWeek: string, totalDays: numbe
   const weekMs = 7 * 24 * 60 * 60 * 1000;
   const spanMs = endTime - startTime + weekMs;
   return (spanMs / (totalDays * 24 * 60 * 60 * 1000)) * 100;
+}
+
+/** Segment bar position must follow the same layout as the grid (equal month columns, equal week widths within month), not linear calendar time — otherwise bars drift from week cells when zooming. */
+function getWeekSlotBarPercent(
+  normStart: string,
+  normEnd: string,
+  months: Date[],
+  columnWidth: number,
+  gridWidth: number
+): { leftPct: number; widthPct: number } {
+  let leftPx = 0;
+  let spanLeftPx: number | null = null;
+  let spanRightPx = 0;
+  for (const m of months) {
+    const monthWeeks = getWeeksInMonth(m);
+    const ww = columnWidth / Math.max(1, monthWeeks.length);
+    for (const w of monthWeeks) {
+      const ws = normalizeWeekKey(getWeekStartString(w));
+      if (ws >= normStart && ws <= normEnd) {
+        if (spanLeftPx === null) spanLeftPx = leftPx;
+        spanRightPx = leftPx + ww;
+      }
+      leftPx += ww;
+    }
+  }
+  if (spanLeftPx === null || gridWidth <= 0) return { leftPct: 0, widthPct: 0 };
+  const widthPx = spanRightPx - spanLeftPx;
+  const leftPct = (spanLeftPx / gridWidth) * 100;
+  const widthPct = Math.min(100 - leftPct, (widthPx / gridWidth) * 100);
+  return { leftPct, widthPct };
+}
+
+function getMonthColumnBarPercent(
+  normStart: string,
+  normEnd: string,
+  months: Date[],
+  columnWidth: number,
+  gridWidth: number
+): { leftPct: number; widthPct: number } {
+  const start = new Date(normStart + 'T12:00:00');
+  const end = new Date(normEnd + 'T12:00:00');
+  const startIdx = start.getFullYear() * 12 + start.getMonth();
+  const endIdx = end.getFullYear() * 12 + end.getMonth();
+  let leftPx = 0;
+  let spanLeftPx: number | null = null;
+  let spanRightPx = 0;
+  for (const m of months) {
+    const idx = m.getFullYear() * 12 + m.getMonth();
+    if (idx >= startIdx && idx <= endIdx) {
+      if (spanLeftPx === null) spanLeftPx = leftPx;
+      spanRightPx = leftPx + columnWidth;
+    }
+    leftPx += columnWidth;
+  }
+  if (spanLeftPx === null || gridWidth <= 0) return { leftPct: 0, widthPct: 0 };
+  const widthPx = spanRightPx - spanLeftPx;
+  const leftPct = (spanLeftPx / gridWidth) * 100;
+  const widthPct = Math.min(100 - leftPct, (widthPx / gridWidth) * 100);
+  return { leftPct, widthPct };
+}
+
+function quarterOrder(y: number, q: number): number {
+  return y * 4 + (q - 1);
+}
+
+function getQuarterColumnBarPercent(
+  normStart: string,
+  normEnd: string,
+  quarters: { q: number; y: number }[],
+  columnWidth: number,
+  gridWidth: number
+): { leftPct: number; widthPct: number } {
+  const start = new Date(normStart + 'T12:00:00');
+  const end = new Date(normEnd + 'T12:00:00');
+  const segLo = quarterOrder(start.getFullYear(), Math.floor(start.getMonth() / 3) + 1);
+  const segHi = quarterOrder(end.getFullYear(), Math.floor(end.getMonth() / 3) + 1);
+  let leftPx = 0;
+  let spanLeftPx: number | null = null;
+  let spanRightPx = 0;
+  const qWidth = columnWidth * 3;
+  for (const { q, y } of quarters) {
+    const o = quarterOrder(y, q);
+    if (o >= segLo && o <= segHi) {
+      if (spanLeftPx === null) spanLeftPx = leftPx;
+      spanRightPx = leftPx + qWidth;
+    }
+    leftPx += qWidth;
+  }
+  if (spanLeftPx === null || gridWidth <= 0) return { leftPct: 0, widthPct: 0 };
+  const widthPx = spanRightPx - spanLeftPx;
+  const leftPct = (spanLeftPx / gridWidth) * 100;
+  const widthPct = Math.min(100 - leftPct, (widthPx / gridWidth) * 100);
+  return { leftPct, widthPct };
 }
 
 function getEffectiveSpan(
@@ -179,22 +270,35 @@ type AllocationSegment = {
 
 function PersonAllocationExpandableRow({
   segments,
-  startDate,
-  totalDays,
   gridWidth,
+  displayLevel,
+  months,
+  quarters,
+  columnWidth,
 }: {
   segments: AllocationSegment[];
-  startDate: Date;
-  totalDays: number;
   gridWidth: number;
+  displayLevel: 'quarters' | 'months' | 'monthsWithWeeks';
+  months: Date[];
+  quarters: { q: number; y: number }[];
+  columnWidth: number;
 }) {
   if (segments.length === 0) return null;
 
   return (
     <>
       {segments.map((seg, idx) => {
-        const leftPct = dateToOffset(seg.startWeek, startDate, totalDays);
-        const widthPct = getSegmentWidthPct(seg.startWeek, seg.endWeek, totalDays);
+        const normStart = normalizeWeekKey(seg.startWeek);
+        const normEnd = normalizeWeekKey(seg.endWeek);
+        let leftPct: number;
+        let widthPct: number;
+        if (displayLevel === 'monthsWithWeeks') {
+          ({ leftPct, widthPct } = getWeekSlotBarPercent(normStart, normEnd, months, columnWidth, gridWidth));
+        } else if (displayLevel === 'months') {
+          ({ leftPct, widthPct } = getMonthColumnBarPercent(normStart, normEnd, months, columnWidth, gridWidth));
+        } else {
+          ({ leftPct, widthPct } = getQuarterColumnBarPercent(normStart, normEnd, quarters, columnWidth, gridWidth));
+        }
         const phaseLabel = seg.phase ? ` (${seg.phase.phase.replace(/_/g, ' ')})` : '';
         return (
           <div
@@ -279,11 +383,19 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
   const phaseMap = new Map(phases.map((p) => [p.id, p]));
   const ventureMap = new Map(ventures.map((v) => [v.id, v]));
 
+  /** Match main timeline visibility: exclude hidden ventures from planning totals; always include support ventures. */
+  const includeVentureInPeoplePlanning = (v: Venture | undefined): boolean => {
+    if (!v) return false;
+    if (v.status === 'support') return true;
+    return v.timeline_visible === true && v.hidden_from_venture_tracker !== true;
+  };
+  const planningAllocations = allocations.filter((a) => includeVentureInPeoplePlanning(ventureMap.get(a.venture_id)));
+
   let { start: startDate, end: endDate } = getDateRange(phases, milestones);
   // Expand range to include allocations and their phase spans (only when not using sync)
-  if (!sync && allocations.length > 0) {
+  if (!sync && planningAllocations.length > 0) {
     const dates: number[] = [];
-    for (const a of allocations) {
+    for (const a of planningAllocations) {
       const phase = a.phase_id ? phaseMap.get(a.phase_id) ?? null : null;
       if (phase?.start_date && phase?.end_date) {
         const ps = new Date(phase.start_date).getTime();
@@ -310,7 +422,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
   const displayLevel = useMonthZoom ? getDisplayLevel(columnWidth) : 'monthsWithWeeks';
   const months = getMonthsBetween(startDate, endDate);
   const gridTotalWidth =
-    sync?.gridTotalWidth ?? weeks.length * FALLBACK_WEEK_COLUMN_WIDTH;
+    sync?.gridTotalWidth ?? getGridTotalWidth(zoom, startDate, endDate);
   const gridWidth = gridTotalWidth;
   const totalDays =
     (sync?.totalDays) ??
@@ -329,7 +441,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
   const endTime = endDate.getTime();
   const weekMs = 7 * 24 * 60 * 60 * 1000;
 
-  for (const a of allocations) {
+  for (const a of planningAllocations) {
     const phase = a.phase_id ? phaseMap.get(a.phase_id) ?? null : null;
     const venture =
       ventureMap.get(a.venture_id) ??
@@ -629,7 +741,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
               const weekTotals = byEmployeeAndWeek.get(emp.id) ?? new Map();
               const isExpanded = expandedId === emp.id;
               const rawSegments = buildAllocationSegments(
-                allocations,
+                planningAllocations,
                 emp.id,
                 ventureMap,
                 phaseMap,
@@ -747,9 +859,11 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
                   {isExpanded && (
                     <PersonAllocationExpandableRow
                       segments={segments}
-                      startDate={startDate}
-                      totalDays={totalDays}
                       gridWidth={gridWidth}
+                      displayLevel={displayLevel}
+                      months={months}
+                      quarters={quarters}
+                      columnWidth={columnWidth}
                     />
                   )}
                 </div>

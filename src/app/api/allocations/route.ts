@@ -81,3 +81,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
+
+/** Bulk-delete all allocations for a venture (e.g. "Remove from timeline" clears planning rows). */
+export async function DELETE(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const ventureId = searchParams.get('ventureId');
+  if (!ventureId) {
+    return NextResponse.json({ error: 'ventureId query parameter required' }, { status: 400 });
+  }
+  const vid = parseInt(ventureId, 10);
+  if (Number.isNaN(vid)) {
+    return NextResponse.json({ error: 'Invalid ventureId' }, { status: 400 });
+  }
+  const { error } = await getSupabase().from('allocations').delete().eq('venture_id', vid);
+  if (error) {
+    console.error(error);
+    return NextResponse.json({ error: error.message || 'Failed to delete allocations' }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true });
+}

@@ -1460,16 +1460,33 @@ export function TimelineView(props?: TimelineViewProps) {
                     prev.map((v) => (v.id === id ? { ...v, timeline_visible: false } : v))
                   );
                   setSelectedVentureId(null);
-                  const res = await fetch(`/api/ventures/${id}`, {
+                  const patchRes = await fetch(`/api/ventures/${id}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ timeline_visible: false }),
                   });
-                  if (!res.ok) {
+                  if (!patchRes.ok) {
                     setVentures((prev) =>
                       prev.map((v) => (v.id === id ? { ...v, timeline_visible: true } : v))
                     );
+                    toast.show('Failed to remove from timeline');
+                    return;
                   }
+                  const delRes = await fetch(`/api/allocations?ventureId=${id}`, { method: 'DELETE' });
+                  if (!delRes.ok) {
+                    await fetch(`/api/ventures/${id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ timeline_visible: true }),
+                    });
+                    setVentures((prev) =>
+                      prev.map((v) => (v.id === id ? { ...v, timeline_visible: true } : v))
+                    );
+                    toast.show('Failed to clear allocations');
+                    return;
+                  }
+                  setAllocations((prev) => prev.filter((a) => a.venture_id !== id));
+                  toast.show('Removed from timeline');
                 }}
                 onDelete={async () => {
                   const id = selectedVenture.id;
