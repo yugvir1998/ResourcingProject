@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Venture, VenturePhase, HiringMilestone, Employee, Allocation } from '@/types';
 import { useToast } from '@/components/Toast';
 import { DeleteVentureConfirmModal } from '@/components/DeleteVentureConfirmModal';
+import { isPhaseIncludedInCapacity } from '@/lib/phaseCapacity';
 
 function MilestoneEditRow({
   milestone,
@@ -138,6 +139,8 @@ interface ProjectPanelProps {
   onDelete?: () => void | Promise<void>;
   onMoveToSupport?: () => void | Promise<void>;
   onGreenlight?: () => void | Promise<void>;
+  /** Persist hide-from-capacity and keep timeline state in sync (optimistic update lives in parent). */
+  onPhaseCapacityHiddenChange?: (phaseId: number, hiddenFromCapacity: boolean) => Promise<void>;
 }
 
 export function ProjectPanel({
@@ -152,6 +155,7 @@ export function ProjectPanel({
   onDelete,
   onMoveToSupport,
   onGreenlight,
+  onPhaseCapacityHiddenChange,
 }: ProjectPanelProps) {
   const toast = useToast();
   const [name, setName] = useState(venture.name);
@@ -168,6 +172,22 @@ export function ProjectPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [capacityToggleId, setCapacityToggleId] = useState<number | null>(null);
+
+  useEffect(() => {
+    setLocalPhases(phases);
+  }, [phases]);
+
+  const handleTogglePhaseCapacity = async (p: VenturePhase) => {
+    if (!onPhaseCapacityHiddenChange || capacityToggleId != null) return;
+    const next = !p.hidden_from_capacity;
+    setCapacityToggleId(p.id);
+    try {
+      await onPhaseCapacityHiddenChange(p.id, next);
+    } finally {
+      setCapacityToggleId(null);
+    }
+  };
 
   const handleDeletePhase = async (id: number) => {
     const res = await fetch(`/api/venture-phases/${id}`, { method: 'DELETE' });
@@ -461,24 +481,64 @@ export function ProjectPanel({
               {localPhases.map((p) => (
                 <div
                   key={p.id}
-                  className="flex items-center justify-between gap-2 rounded border border-zinc-200 px-2 py-1.5 text-sm"
+                  className={`flex items-center justify-between gap-2 rounded border px-2 py-1.5 text-sm ${
+                    isPhaseIncludedInCapacity(p) ? 'border-zinc-200' : 'border-dashed border-zinc-300 bg-zinc-50/80'
+                  }`}
                 >
-                  <span>{PHASE_LABELS[p.phase] || p.phase}</span>
-                  <span className="text-zinc-500">
+                  <span className="min-w-0 shrink truncate">
+                    {PHASE_LABELS[p.phase] || p.phase}
+                    {!isPhaseIncludedInCapacity(p) && (
+                      <span className="ml-1 text-xs font-normal text-zinc-500">(hidden from capacity)</span>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-zinc-500">
                     {p.start_date} → {p.end_date}
                   </span>
-                  <button
-                    onClick={() => handleDeletePhase(p.id)}
-                    className="text-zinc-400 hover:text-red-600"
-                    title="Delete phase"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      <line x1="10" y1="11" x2="10" y2="17" />
-                      <line x1="14" y1="11" x2="14" y2="17" />
-                    </svg>
-                  </button>
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    {onPhaseCapacityHiddenChange && (
+                      <button
+                        type="button"
+                        onClick={() => handleTogglePhaseCapacity(p)}
+                        disabled={capacityToggleId === p.id}
+                        className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-50"
+                        title={
+                          p.hidden_from_capacity
+                            ? 'Show phase on timeline and in capacity views'
+                            : 'Hide phase from timeline and capacity views'
+                        }
+                        aria-label={
+                          p.hidden_from_capacity
+                            ? 'Show phase in capacity views'
+                            : 'Hide phase from capacity views'
+                        }
+                      >
+                        {p.hidden_from_capacity ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                            <line x1="1" y1="1" x2="23" y2="23" />
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        )}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePhase(p.id)}
+                      className="rounded p-1 text-zinc-400 hover:text-red-600"
+                      title="Delete phase"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        <line x1="10" y1="11" x2="10" y2="17" />
+                        <line x1="14" y1="11" x2="14" y2="17" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

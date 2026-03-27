@@ -14,7 +14,7 @@ async function buildPortfolioContext(): Promise<string> {
   const supabase = getSupabase();
 
   const [vRes, pRes, aRes, mRes, paRes, eRes] = await Promise.all([
-    supabase.from('ventures').select('*').order('backlog_priority').order('name'),
+    supabase.from('ventures').select('*').is('deleted_at', null).order('backlog_priority').order('name'),
     supabase.from('venture_phases').select('*').order('venture_id').order('sort_order').order('start_date'),
     supabase.from('allocations').select('*').order('venture_id').order('week_start'),
     supabase.from('hiring_milestones').select('*').order('venture_id').order('target_date'),

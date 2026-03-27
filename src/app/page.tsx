@@ -8,6 +8,8 @@ import { ExplorationStagingSection } from '@/components/ExplorationStagingSectio
 import { SupportVenturesSection } from '@/components/SupportVenturesSection';
 import { PeopleAllocationView } from '@/components/PeopleAllocationView';
 import { TimelineSyncProvider } from '@/contexts/TimelineSyncContext';
+import { UndoProvider } from '@/contexts/UndoContext';
+import { CommandUndoToolbar } from '@/components/CommandUndoToolbar';
 
 export default function CommandCenterPage() {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -35,7 +37,9 @@ export default function CommandCenterPage() {
   }, [refreshKey]);
 
   return (
+    <UndoProvider>
     <div className="space-y-3">
+      <CommandUndoToolbar />
       {/* Section 1: Backlog (collapsible) - hidden from page */}
       {false && (
       <section>
@@ -82,7 +86,13 @@ export default function CommandCenterPage() {
             <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
             Active ({activeCount})
           </h2>
-          <TimelineView defaultCollapsed showSectionHeader={false} refreshTrigger={refreshKey} onVentureDeleted={onDeleted} />
+          <TimelineView
+            defaultCollapsed
+            showSectionHeader={false}
+            refreshTrigger={refreshKey}
+            onVentureDeleted={onDeleted}
+            onRefresh={onAdded}
+          />
         </section>
 
         {/* Section 4: Support Ventures */}
@@ -92,5 +102,6 @@ export default function CommandCenterPage() {
         <PeopleAllocationView refreshTrigger={refreshKey} />
       </TimelineSyncProvider>
     </div>
+    </UndoProvider>
   );
 }

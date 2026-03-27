@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     const { data: phases } = await supabase.from('venture_phases').select('id');
     const validPhaseIds = new Set((phases || []).map((p: { id: number }) => p.id));
 
-    const { data: ventures } = await supabase.from('ventures').select('id');
+    const { data: ventures } = await supabase.from('ventures').select('id').is('deleted_at', null);
     const validVentureIds = new Set((ventures || []).map((v: { id: number }) => v.id));
 
     const { data: employees } = await supabase.from('employees').select('id');

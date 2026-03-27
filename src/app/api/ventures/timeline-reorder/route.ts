@@ -14,7 +14,8 @@ export async function POST(request: Request) {
       const { error } = await getSupabase()
         .from('ventures')
         .update({ timeline_priority: i })
-        .eq('id', ventureIds[i]);
+        .eq('id', ventureIds[i])
+        .is('deleted_at', null);
       if (error) throw error;
     }
 

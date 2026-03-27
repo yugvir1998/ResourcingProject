@@ -8,7 +8,7 @@ export async function PATCH(
   const { id } = await params;
   const body = await request.json();
 
-  const allowed = ['phase', 'start_date', 'end_date', 'sort_order'];
+  const allowed = ['phase', 'start_date', 'end_date', 'sort_order', 'hidden_from_capacity'];
   const updates: Record<string, unknown> = {};
 
   for (const key of allowed) {

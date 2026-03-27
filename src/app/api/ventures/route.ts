@@ -6,6 +6,7 @@ export async function GET() {
     const { data, error } = await getSupabase()
       .from('ventures')
       .select('*')
+      .is('deleted_at', null)
       .order('backlog_priority', { ascending: true })
       .order('name', { ascending: true });
 

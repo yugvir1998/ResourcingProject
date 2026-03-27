@@ -18,6 +18,8 @@ import {
   type ZoomLevel,
 } from '@/components/timeline/TimeAxis';
 import { useCurrentDate } from '@/hooks/useCurrentDate';
+import { isAllocationIncludedInCapacity } from '@/lib/phaseCapacity';
+import type { VenturePhase } from '@/types';
 
 const SIDEBAR_WIDTH = 192;
 const ZOOM_SCALE_MIN = 0.5;
@@ -54,7 +56,7 @@ export function TimelineSyncProvider({
   const [zoomScale, setZoomScale] = useState(1);
   const [hasScrolledToToday, setHasScrolledToToday] = useState(false);
   const [syncData, setSyncData] = useState<{
-    phases: { id: number; start_date: string; end_date: string }[];
+    phases: VenturePhase[];
     milestones: { target_date: string }[];
     allocations: { week_start: string; phase_id?: number | null }[];
   }>({ phases: [], milestones: [], allocations: [] });
@@ -85,6 +87,7 @@ export function TimelineSyncProvider({
     const phaseMap = new Map(phases.map((p) => [p.id, p]));
     const dates: number[] = [];
     for (const a of allocations) {
+      if (!isAllocationIncludedInCapacity(a.phase_id, phaseMap)) continue;
       const phase = a.phase_id ? phaseMap.get(a.phase_id) : null;
       if (phase?.start_date && phase?.end_date) {
         const ps = new Date(phase.start_date).getTime();

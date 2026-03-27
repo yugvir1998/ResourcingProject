@@ -36,6 +36,7 @@ export interface Venture {
   is_active?: boolean | null;
   tentative_start_date?: string | null;
   design_partner?: string | null;
+  deleted_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -85,6 +86,8 @@ export interface VenturePhase {
   start_date: string;
   end_date: string;
   sort_order: number;
+  /** When true, phase bar is hidden on timeline and phase-linked allocations are excluded from capacity views. */
+  hidden_from_capacity?: boolean | null;
 }
 
 export interface PhaseActivity {

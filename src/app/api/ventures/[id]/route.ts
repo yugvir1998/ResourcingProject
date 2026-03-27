@@ -10,6 +10,7 @@ export async function GET(
     .from('ventures')
     .select('*')
     .eq('id', parseInt(id, 10))
+    .is('deleted_at', null)
     .single();
 
   if (error || !data) return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -32,8 +33,17 @@ export async function PATCH(
     }
   }
 
+  if ('deleted_at' in body && body.deleted_at === null) {
+    updates.deleted_at = null;
+  }
+
   if (Object.keys(updates).length <= 1) {
-    const { data } = await getSupabase().from('ventures').select('*').eq('id', parseInt(id, 10)).single();
+    const { data } = await getSupabase()
+      .from('ventures')
+      .select('*')
+      .eq('id', parseInt(id, 10))
+      .is('deleted_at', null)
+      .single();
     return NextResponse.json(data);
   }
 
@@ -49,6 +59,7 @@ export async function PATCH(
     const safeKeys = ['name', 'status', 'backlog_priority', 'design_partner_status', 'design_partner', 'exploration_phase', 'one_metric_that_matters', 'primary_contact_id', 'notion_link', 'is_greenlit', 'is_paused', 'is_active'];
     if (!error.message?.includes('timeline_visible')) safeKeys.push('timeline_visible');
     if (!error.message?.includes('hidden_from_venture_tracker')) safeKeys.push('hidden_from_venture_tracker');
+    if ('deleted_at' in updates) safeKeys.push('deleted_at');
     for (const k of safeKeys) {
       if (k in updates) safeUpdates[k] = updates[k];
     }
@@ -74,10 +85,30 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { error } = await getSupabase().from('ventures').delete().eq('id', parseInt(id, 10));
+  const ventureId = parseInt(id, 10);
+  const supabase = getSupabase();
+  const now = new Date().toISOString();
+
+  let { data, error } = await supabase
+    .from('ventures')
+    .update({ deleted_at: now, updated_at: now })
+    .eq('id', ventureId)
+    .select()
+    .maybeSingle();
+
   if (error) {
+    const msg = error.message || '';
+    if (msg.includes('deleted_at') || msg.includes('does not exist')) {
+      const { error: delErr } = await supabase.from('ventures').delete().eq('id', ventureId);
+      if (delErr) {
+        console.error(delErr);
+        return NextResponse.json({ error: 'Failed to delete' }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true, id: ventureId });
+    }
     console.error(error);
-    return NextResponse.json({ error: 'Failed to delete' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Failed to delete' }, { status: 500 });
   }
-  return NextResponse.json({ ok: true });
+
+  return NextResponse.json(data ?? { ok: true, id: ventureId });
 }

@@ -13,6 +13,7 @@ import { ActivityBar } from './ActivityBar';
 import { MilestoneMarker } from './MilestoneMarker';
 import { PhasePeopleCards } from './PhasePeopleCards';
 import { PHASE_COLORS } from '@/lib/phaseColors';
+import { isPhaseIncludedInCapacity } from '@/lib/phaseCapacity';
 
 const PHASE_TYPES = ['explore', 'shape', 'build', 'spin_out'] as const;
 const PHASE_LABELS: Record<string, string> = {
@@ -125,15 +126,16 @@ export function ProjectRow({
     : PHASE_TYPES.map((type) => venturePhases.find((p) => p.phase === type)).filter(
         (p): p is VenturePhase => p != null
       );
+  const visiblePhases = sortedPhases.filter(isPhaseIncludedInCapacity);
 
   if (collapsed) {
     return (
       <div>
         <div className="relative flex h-10 flex-col justify-center">
-          {sortedPhases.length > 0 ? (
+          {visiblePhases.length > 0 ? (
             <>
               <div className="relative mb-0.5 flex h-3 items-end">
-                {sortedPhases.map((phase) => {
+                {visiblePhases.map((phase) => {
                   const leftPct = dateToOffset(phase.start_date, startDate, totalDays);
                   const rightPct = dateToOffset(phase.end_date, startDate, totalDays);
                   const widthPct = Math.max(rightPct - leftPct, 1);
@@ -158,7 +160,7 @@ export function ProjectRow({
                 })}
               </div>
               <div className="relative flex h-6 items-center">
-                {sortedPhases.map((phase) => {
+                {visiblePhases.map((phase) => {
                   const leftPct = dateToOffset(phase.start_date, startDate, totalDays);
                   const rightPct = dateToOffset(phase.end_date, startDate, totalDays);
                   const widthPct = Math.max(rightPct - leftPct, 1);
@@ -265,7 +267,7 @@ export function ProjectRow({
               </span>
             </div>
           )}
-          {sortedPhases.map((phase) => {
+          {visiblePhases.map((phase) => {
             const phaseAllocs = allocations.filter((a) => a.phase_id === phase.id);
             const assignedPeople = [
               ...new Map(
@@ -297,7 +299,7 @@ export function ProjectRow({
         </div>
         {(() => {
           const rendered = new Set<number>();
-          return sortedPhases.flatMap((phase) => {
+          return visiblePhases.flatMap((phase) => {
             if (phase.phase === 'pause') return [];
             return milestones
               .filter((m) => {
@@ -328,7 +330,7 @@ export function ProjectRow({
           });
         })()}
       </div>
-      {sortedPhases
+      {visiblePhases
         .filter((phase) => phase.phase !== 'pause')
         .map((phase) => {
         const isExpanded = expandedPhaseIds.has(phase.id);
@@ -364,7 +366,7 @@ export function ProjectRow({
       })}
       {showPeople && (
         <div className="relative flex min-h-20 items-start pt-1.5 pb-1.5">
-          {sortedPhases
+          {visiblePhases
             .filter((phase) => phase.phase !== 'pause')
             .map((phase) => {
             const leftPct = dateToOffset(phase.start_date, startDate, totalDays);

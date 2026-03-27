@@ -1,6 +1,7 @@
 'use client';
 
 import type { Venture, VenturePhase, Allocation, Employee } from '@/types';
+import { isPhaseIncludedInCapacity } from '@/lib/phaseCapacity';
 
 type AllocationItem = { venture: Venture; phase: VenturePhase; fte: number };
 
@@ -59,7 +60,7 @@ export function PeopleView({
   for (const a of allocations) {
     const phase = a.phase_id ? phaseMap.get(a.phase_id) : null;
     const venture = ventureMap.get(a.venture_id);
-    if (!phase || !venture) continue;
+    if (!phase || !venture || !isPhaseIncludedInCapacity(phase)) continue;
 
     const weekStart = a.week_start;
     const weekTime = new Date(weekStart).getTime();

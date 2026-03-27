@@ -14,6 +14,7 @@ import {
 } from './timeline/TimeAxis';
 import { useTimelineSyncOptional } from '@/contexts/TimelineSyncContext';
 import { comparePeopleTags } from '@/lib/people-tags';
+import { isAllocationIncludedInCapacity } from '@/lib/phaseCapacity';
 
 function getWeekStartString(d: Date): string {
   const day = d.getDay();
@@ -179,6 +180,7 @@ function buildAllocationSegments(
   const empAllocs = allocations.filter((a) => a.employee_id === employeeId);
 
   for (const a of empAllocs) {
+    if (!isAllocationIncludedInCapacity(a.phase_id, phaseMap)) continue;
     const venture = ventureMap.get(a.venture_id) ?? ({ id: a.venture_id, name: `Venture ${a.venture_id}` } as Venture);
     const phase = a.phase_id ? phaseMap.get(a.phase_id) ?? null : null;
     const span = getEffectiveSpan(a, phaseMap, startTime, endTime);
@@ -390,7 +392,11 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
     if (v.status === 'support') return true;
     return v.timeline_visible === true && v.hidden_from_venture_tracker !== true;
   };
-  const planningAllocations = allocations.filter((a) => includeVentureInPeoplePlanning(ventureMap.get(a.venture_id)));
+  const planningAllocations = allocations.filter(
+    (a) =>
+      includeVentureInPeoplePlanning(ventureMap.get(a.venture_id)) &&
+      isAllocationIncludedInCapacity(a.phase_id, phaseMap)
+  );
 
   let { start: startDate, end: endDate } = getDateRange(phases, milestones);
   // Expand range to include allocations and their phase spans (only when not using sync)

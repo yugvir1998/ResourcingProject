@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   DndContext,
@@ -169,17 +169,22 @@ import { MilestoneModal } from './timeline/MilestoneModal';
 import { ImpactPanel } from './ImpactPanel';
 import { useToast } from './Toast';
 import { useTimelineSyncOptional } from '@/contexts/TimelineSyncContext';
+import { useUndoOptional } from '@/contexts/UndoContext';
 
 interface TimelineViewProps {
   defaultCollapsed?: boolean;
   showSectionHeader?: boolean;
   refreshTrigger?: number;
   onVentureDeleted?: () => void;
+  /** Bump global refresh (e.g. People Allocation + sync) after local timeline mutations. */
+  onRefresh?: () => void;
 }
 
 export function TimelineView(props?: TimelineViewProps) {
-  const { defaultCollapsed = false, showSectionHeader = true, refreshTrigger, onVentureDeleted } = props ?? {};
+  const { defaultCollapsed = false, showSectionHeader = true, refreshTrigger, onVentureDeleted, onRefresh } =
+    props ?? {};
   const toast = useToast();
+  const undo = useUndoOptional();
   const [ventures, setVentures] = useState<Venture[]>([]);
   const [phases, setPhases] = useState<VenturePhase[]>([]);
   const [phaseActivities, setPhaseActivities] = useState<PhaseActivity[]>([]);
@@ -226,6 +231,7 @@ export function TimelineView(props?: TimelineViewProps) {
 
   const handleHideFromTimeline = useCallback(
     async (ventureId: number) => {
+      const prevV = ventures.find((v) => v.id === ventureId);
       setVentures((prev) => prev.map((v) => (v.id === ventureId ? { ...v, timeline_visible: false } : v)));
       setSelectedVentureId((id) => (id === ventureId ? null : id));
       const res = await fetch(`/api/ventures/${ventureId}`, {
@@ -238,9 +244,27 @@ export function TimelineView(props?: TimelineViewProps) {
         toast.show('Failed to hide');
       } else {
         toast.show('Hidden from timeline');
+        if (prevV) {
+          undo?.pushUndo({
+            label: 'Hide from timeline',
+            undo: async () => {
+              const r = await fetch(`/api/ventures/${ventureId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  timeline_visible: prevV.timeline_visible,
+                  hidden_from_venture_tracker: prevV.hidden_from_venture_tracker,
+                }),
+              });
+              if (!r.ok) throw new Error('Undo failed');
+              const data = await r.json();
+              setVentures((prev) => prev.map((v) => (v.id === ventureId ? data : v)));
+            },
+          });
+        }
       }
     },
-    [toast]
+    [toast, undo, ventures]
   );
 
   const applyTimelineTemplate = useCallback(async (ventureId: number) => {
@@ -266,6 +290,7 @@ export function TimelineView(props?: TimelineViewProps) {
 
   const handleGreenlight = useCallback(
     async (ventureId: number) => {
+      const prevV = ventures.find((v) => v.id === ventureId);
       try {
         const res = await fetch(`/api/ventures/${ventureId}`, {
           method: 'PATCH',
@@ -280,15 +305,32 @@ export function TimelineView(props?: TimelineViewProps) {
         setVentures((prev) => prev.map((v) => (v.id === ventureId ? data : v)));
         toast.show('Project greenlit');
         fetchData();
+        if (prevV) {
+          undo?.pushUndo({
+            label: 'Greenlight project',
+            undo: async () => {
+              const r = await fetch(`/api/ventures/${ventureId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: prevV.status }),
+              });
+              if (!r.ok) throw new Error('Undo failed');
+              const restored = await r.json();
+              setVentures((prev) => prev.map((v) => (v.id === ventureId ? restored : v)));
+              await fetchData();
+            },
+          });
+        }
       } catch (err) {
         toast.show(err instanceof Error ? err.message : 'Something went wrong');
       }
     },
-    [toast]
+    [toast, undo, ventures]
   );
 
   const handleUnhide = useCallback(
     async (ventureId: number) => {
+      const prevV = ventures.find((v) => v.id === ventureId);
       setUnhidingId(ventureId);
       try {
         const res = await fetch(`/api/ventures/${ventureId}`, {
@@ -302,8 +344,8 @@ export function TimelineView(props?: TimelineViewProps) {
           return;
         }
         const phasesRes = await fetch(`/api/venture-phases?ventureId=${ventureId}`);
-        const phases = await phasesRes.json();
-        if (Array.isArray(phases) && phases.length === 0) {
+        const phasesJson = await phasesRes.json();
+        if (Array.isArray(phasesJson) && phasesJson.length === 0) {
           try {
             await applyTimelineTemplate(ventureId);
           } catch (err) {
@@ -317,13 +359,32 @@ export function TimelineView(props?: TimelineViewProps) {
         setShowHiddenDropdown(false);
         toast.show('Added back to timeline');
         fetchData();
+        if (prevV) {
+          undo?.pushUndo({
+            label: 'Add back to timeline',
+            undo: async () => {
+              const r = await fetch(`/api/ventures/${ventureId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  timeline_visible: prevV.timeline_visible,
+                  hidden_from_venture_tracker: prevV.hidden_from_venture_tracker,
+                }),
+              });
+              if (!r.ok) throw new Error('Undo failed');
+              const restored = await r.json();
+              setVentures((prev) => prev.map((v) => (v.id === ventureId ? restored : v)));
+              await fetchData();
+            },
+          });
+        }
       } catch (err) {
         toast.show(err instanceof Error ? err.message : 'Something went wrong');
       } finally {
         setUnhidingId(null);
       }
     },
-    [toast, applyTimelineTemplate]
+    [toast, applyTimelineTemplate, undo, ventures]
   );
 
   const timelineSensors = useSensors(
@@ -379,6 +440,14 @@ export function TimelineView(props?: TimelineViewProps) {
 
   const handleSetVentureTag = useCallback(
     async (ventureId: number, tag: 'greenlit' | 'battling' | 'paused' | null) => {
+      const prevV = ventures.find((v) => v.id === ventureId);
+      const before = prevV
+        ? {
+            is_greenlit: prevV.is_greenlit ?? false,
+            is_paused: prevV.is_paused ?? false,
+            is_active: prevV.is_active ?? false,
+          }
+        : null;
       const flags =
         tag === 'greenlit'
           ? { is_greenlit: true, is_paused: false, is_active: false }
@@ -395,11 +464,26 @@ export function TimelineView(props?: TimelineViewProps) {
       if (res.ok) {
         const data = await res.json();
         setVentures((prev) => prev.map((v) => (v.id === ventureId ? data : v)));
+        if (before) {
+          undo?.pushUndo({
+            label: 'Change venture tag',
+            undo: async () => {
+              const r = await fetch(`/api/ventures/${ventureId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(before),
+              });
+              if (!r.ok) throw new Error('Undo failed');
+              const restored = await r.json();
+              setVentures((prev) => prev.map((v) => (v.id === ventureId ? restored : v)));
+            },
+          });
+        }
       } else {
         toast.show('Failed to update tag');
       }
     },
-    [toast]
+    [toast, undo, ventures]
   );
 
   const hiddenVentures = ventures.filter(
@@ -415,6 +499,7 @@ export function TimelineView(props?: TimelineViewProps) {
       const oldIndex = timelineVentures.findIndex((v) => v.id === active.id);
       const newIndex = timelineVentures.findIndex((v) => v.id === over.id);
       if (oldIndex < 0 || newIndex < 0) return;
+      const previousVentureIds = timelineVentures.map((v) => v.id);
       const reordered = arrayMove(timelineVentures, oldIndex, newIndex);
       const ventureIds = reordered.map((v) => v.id);
       setVentures((prev) =>
@@ -432,13 +517,28 @@ export function TimelineView(props?: TimelineViewProps) {
       if (!res.ok) {
         fetchData();
         toast.show('Failed to reorder');
+      } else {
+        undo?.pushUndo({
+          label: 'Reorder timeline',
+          undo: async () => {
+            const r = await fetch('/api/ventures/timeline-reorder', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ventureIds: previousVentureIds }),
+            });
+            if (!r.ok) throw new Error('Undo failed');
+            await fetchData();
+          },
+        });
       }
     },
-    [timelineVentures, toast]
+    [timelineVentures, toast, undo]
   );
 
   const handleSetProjectLead = useCallback(
     async (ventureId: number, employeeId: number) => {
+      const prevV = ventures.find((v) => v.id === ventureId);
+      const prevLead = prevV?.primary_contact_id ?? null;
       const res = await fetch(`/api/ventures/${ventureId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -447,11 +547,24 @@ export function TimelineView(props?: TimelineViewProps) {
       if (res.ok) {
         const data = await res.json();
         setVentures((prev) => prev.map((v) => (v.id === ventureId ? data : v)));
+        undo?.pushUndo({
+          label: 'Set project lead',
+          undo: async () => {
+            const r = await fetch(`/api/ventures/${ventureId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ primary_contact_id: prevLead }),
+            });
+            if (!r.ok) throw new Error('Undo failed');
+            const restored = await r.json();
+            setVentures((prev) => prev.map((v) => (v.id === ventureId ? restored : v)));
+          },
+        });
       } else {
         toast.show('Failed to set project lead');
       }
     },
-    [toast]
+    [toast, undo, ventures]
   );
 
   // When defaultCollapsed, start with all projects collapsed (once on initial load)
@@ -580,17 +693,60 @@ export function TimelineView(props?: TimelineViewProps) {
     if (res.ok) {
       const updated = await res.json();
       setAllocations((a) => a.map((x) => (x.id === id ? updated : x)));
+      if (prev) {
+        const inv: { fte_percentage?: number; phase_id?: number | null } = {};
+        if (updates.fte_percentage !== undefined) inv.fte_percentage = prev.fte_percentage;
+        if (updates.phase_id !== undefined) inv.phase_id = prev.phase_id ?? null;
+        if (Object.keys(inv).length > 0) {
+          undo?.pushUndo({
+            label: 'Edit allocation',
+            undo: async () => {
+              const r = await fetch(`/api/allocations/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(inv),
+              });
+              if (!r.ok) throw new Error('Undo failed');
+              const restored = await r.json();
+              setAllocations((a) => a.map((x) => (x.id === id ? restored : x)));
+            },
+          });
+        }
+      }
     } else if (prev) {
       setAllocations((a) => a.map((x) => (x.id === id ? prev : x)));
     }
   };
 
   const removeAllocation = async (id: number) => {
+    const prev = allocations.find((a) => a.id === id);
+    if (!prev) return;
     setAllocations((a) => a.filter((x) => x.id !== id));
     const res = await fetch(`/api/allocations/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       await fetchData();
+      return;
     }
+    undo?.pushUndo({
+      label: 'Remove allocation',
+      undo: async () => {
+        const r = await fetch('/api/allocations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employee_id: prev.employee_id,
+            venture_id: prev.venture_id,
+            phase_id: prev.phase_id ?? undefined,
+            fte_percentage: prev.fte_percentage,
+            week_start: prev.week_start,
+            notes: prev.notes,
+          }),
+        });
+        if (!r.ok) throw new Error('Undo failed');
+        const created = await r.json();
+        setAllocations((a) => [...a, created]);
+      },
+    });
   };
 
   const updatePhaseActivity = async (id: number, updates: { start_date: string; end_date: string }) => {
@@ -608,6 +764,21 @@ export function TimelineView(props?: TimelineViewProps) {
     if (res.ok) {
       const updated = await res.json();
       setPhaseActivities((pa) => pa.map((x) => (x.id === id ? updated : x)));
+      if (prev) {
+        undo?.pushUndo({
+          label: 'Edit activity dates',
+          undo: async () => {
+            const r = await fetch(`/api/phase-activities/${id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ start_date: prev.start_date, end_date: prev.end_date }),
+            });
+            if (!r.ok) throw new Error('Undo failed');
+            const restored = await r.json();
+            setPhaseActivities((pa) => pa.map((x) => (x.id === id ? restored : x)));
+          },
+        });
+      }
     } else if (prev) {
       setPhaseActivities((pa) => pa.map((x) => (x.id === id ? prev : x)));
     }
@@ -679,8 +850,59 @@ export function TimelineView(props?: TimelineViewProps) {
     if (res.ok) {
       const updated = await res.json();
       setPhases((p) => p.map((x) => (x.id === id ? updated : x)));
+      if (prev) {
+        undo?.pushUndo({
+          label: 'Edit phase dates',
+          undo: async () => {
+            const r = await fetch(`/api/venture-phases/${id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ start_date: prev.start_date, end_date: prev.end_date }),
+            });
+            if (!r.ok) throw new Error('Undo failed');
+            const restored = await r.json();
+            setPhases((p) => p.map((x) => (x.id === id ? restored : x)));
+          },
+        });
+      }
     } else if (prev) {
       setPhases((p) => p.map((x) => (x.id === id ? prev : x)));
+    }
+  };
+
+  const togglePhaseCapacityHidden = async (phaseId: number, hiddenFromCapacity: boolean) => {
+    const prev = phases.find((p) => p.id === phaseId);
+    if (!prev) return;
+    setPhases((p) =>
+      p.map((x) => (x.id === phaseId ? { ...x, hidden_from_capacity: hiddenFromCapacity } : x))
+    );
+    const res = await fetch(`/api/venture-phases/${phaseId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hidden_from_capacity: hiddenFromCapacity }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setPhases((p) => p.map((x) => (x.id === phaseId ? updated : x)));
+      onRefresh?.();
+      const prevHidden = prev.hidden_from_capacity ?? false;
+      undo?.pushUndo({
+        label: hiddenFromCapacity ? 'Hide phase from capacity' : 'Show phase in capacity',
+        undo: async () => {
+          const r = await fetch(`/api/venture-phases/${phaseId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hidden_from_capacity: prevHidden }),
+          });
+          if (!r.ok) throw new Error('Undo failed');
+          const restored = await r.json();
+          setPhases((p) => p.map((x) => (x.id === phaseId ? restored : x)));
+          onRefresh?.();
+        },
+      });
+    } else {
+      setPhases((p) => p.map((x) => (x.id === phaseId ? prev : x)));
+      toast.show('Failed to update phase visibility');
     }
   };
 
@@ -903,6 +1125,11 @@ export function TimelineView(props?: TimelineViewProps) {
     ? ventures.find((v) => v.id === selectedVentureId)
     : null;
 
+  const selectedVenturePanelPhases = useMemo(() => {
+    if (!selectedVentureId) return [];
+    return phases.filter((p) => p.venture_id === selectedVentureId);
+  }, [phases, selectedVentureId]);
+
   const handlePhaseRowClick = useCallback(
     (ventureId: number, e: React.MouseEvent) => {
       const grid = (e.target as HTMLElement).closest('[data-timeline-grid]') as HTMLElement | null;
@@ -934,17 +1161,38 @@ export function TimelineView(props?: TimelineViewProps) {
     setMilestones((prev) => prev.filter((m) => m.id !== id));
   }, []);
 
-  const handleMilestoneUpdate = useCallback(async (id: number, targetDate: string) => {
-    const res = await fetch(`/api/hiring-milestones/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_date: targetDate }),
-    });
-    if (res.ok) {
-      const updated = await res.json();
-      handleMilestoneSave(updated);
-    }
-  }, [handleMilestoneSave]);
+  const handleMilestoneUpdate = useCallback(
+    async (id: number, targetDate: string) => {
+      const prevM = milestones.find((m) => m.id === id);
+      const res = await fetch(`/api/hiring-milestones/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_date: targetDate }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        handleMilestoneSave(updated);
+        if (prevM) {
+          undo?.pushUndo({
+            label: 'Milestone date',
+            undo: async () => {
+              const r = await fetch(`/api/hiring-milestones/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target_date: prevM.target_date }),
+              });
+              if (!r.ok) throw new Error('Undo failed');
+              const restored = await r.json();
+              setMilestones((prev) =>
+                prev.map((m) => (m.id === id ? restored : m)).sort((a, b) => a.target_date.localeCompare(b.target_date))
+              );
+            },
+          });
+        }
+      }
+    },
+    [handleMilestoneSave, milestones, undo]
+  );
 
   const handleAnalyzeImpact = useCallback(() => {
     setImpactInitialMessage('Analyze the current portfolio for delays, risks, overload, and recommendations.');
@@ -1426,7 +1674,7 @@ export function TimelineView(props?: TimelineViewProps) {
               >
                 <ProjectPanel
                 venture={selectedVenture}
-                phases={phases.filter((p) => p.venture_id === selectedVenture.id)}
+                phases={selectedVenturePanelPhases}
                 milestones={milestones.filter((m) => m.venture_id === selectedVenture.id)}
                 allocations={allocations.filter((a) => a.venture_id === selectedVenture.id)}
                 employees={employees}
@@ -1454,8 +1702,12 @@ export function TimelineView(props?: TimelineViewProps) {
                   );
                   toast.show('Saved');
                 }}
+                onPhaseCapacityHiddenChange={togglePhaseCapacityHidden}
                 onRemove={async () => {
                   const id = selectedVenture.id;
+                  const snapAllocs = allocations.filter((a) => a.venture_id === id);
+                  const prevVis = selectedVenture.timeline_visible;
+                  const prevHidden = selectedVenture.hidden_from_venture_tracker;
                   setVentures((prev) =>
                     prev.map((v) => (v.id === id ? { ...v, timeline_visible: false } : v))
                   );
@@ -1487,6 +1739,40 @@ export function TimelineView(props?: TimelineViewProps) {
                   }
                   setAllocations((prev) => prev.filter((a) => a.venture_id !== id));
                   toast.show('Removed from timeline');
+                  undo?.pushUndo({
+                    label: 'Remove from timeline',
+                    undo: async () => {
+                      const pr = await fetch(`/api/ventures/${id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          timeline_visible: prevVis,
+                          hidden_from_venture_tracker: prevHidden,
+                        }),
+                      });
+                      if (!pr.ok) throw new Error('Undo failed');
+                      const vData = await pr.json();
+                      setVentures((prev) => prev.map((v) => (v.id === id ? vData : v)));
+                      for (const a of snapAllocs) {
+                        const ar = await fetch('/api/allocations', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            employee_id: a.employee_id,
+                            venture_id: a.venture_id,
+                            phase_id: a.phase_id ?? undefined,
+                            fte_percentage: a.fte_percentage,
+                            week_start: a.week_start,
+                            notes: a.notes,
+                          }),
+                        });
+                        if (!ar.ok) throw new Error('Undo failed');
+                        const created = await ar.json();
+                        setAllocations((prev) => [...prev, created]);
+                      }
+                      await fetchData();
+                    },
+                  });
                 }}
                 onDelete={async () => {
                   const id = selectedVenture.id;
@@ -1500,6 +1786,18 @@ export function TimelineView(props?: TimelineViewProps) {
                     setSelectedVentureId(null);
                     onVentureDeleted?.();
                     toast.show('Project deleted');
+                    undo?.pushUndo({
+                      label: 'Delete project',
+                      undo: async () => {
+                        const r = await fetch(`/api/ventures/${id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ deleted_at: null }),
+                        });
+                        if (!r.ok) throw new Error('Undo failed');
+                        await fetchData();
+                      },
+                    });
                   } else {
                     toast.show(data.error || 'Failed to delete project');
                   }
@@ -1510,6 +1808,7 @@ export function TimelineView(props?: TimelineViewProps) {
                 } : undefined}
                 onMoveToSupport={selectedVenture.status === 'active' ? async () => {
                   const id = selectedVenture.id;
+                  const prevStatus = selectedVenture.status;
                   const res = await fetch(`/api/ventures/${id}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
@@ -1521,6 +1820,21 @@ export function TimelineView(props?: TimelineViewProps) {
                     setSelectedVentureId(null);
                     onVentureDeleted?.(); // triggers page refresh so Support Ventures section updates
                     toast.show('Tagged as Support');
+                    undo?.pushUndo({
+                      label: 'Move to Support',
+                      undo: async () => {
+                        const r = await fetch(`/api/ventures/${id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ status: prevStatus }),
+                        });
+                        if (!r.ok) throw new Error('Undo failed');
+                        const restored = await r.json();
+                        setVentures((prev) => prev.map((v) => (v.id === id ? restored : v)));
+                        onVentureDeleted?.();
+                        await fetchData();
+                      },
+                    });
                   } else {
                     toast.show('Failed to tag as Support');
                   }

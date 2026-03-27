@@ -52,8 +52,12 @@ export async function POST(request: Request) {
       .from('ventures')
       .select('status')
       .eq('id', venture_id)
-      .single();
-    if (ventureRow?.status === 'exploration_staging') {
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (!ventureRow) {
+      return NextResponse.json({ error: 'Venture not found' }, { status: 404 });
+    }
+    if (ventureRow.status === 'exploration_staging') {
       effectiveFte = 5;
     }
 

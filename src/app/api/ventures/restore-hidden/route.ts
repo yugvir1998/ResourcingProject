@@ -15,6 +15,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from('ventures')
     .select('id, name, timeline_visible, hidden_from_venture_tracker')
+    .is('deleted_at', null)
     .or('timeline_visible.is.null,timeline_visible.eq.false,hidden_from_venture_tracker.eq.true');
 
   if (nameParam) {

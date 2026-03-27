@@ -16,6 +16,7 @@ interface Employee {
   name: string;
 }
 import { useToast } from '@/components/Toast';
+import { useUndoOptional } from '@/contexts/UndoContext';
 import { KanbanColumn } from './KanbanColumn';
 import { VentureCard } from './VentureCard';
 
@@ -72,6 +73,7 @@ export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentur
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const toast = useToast();
+  const undo = useUndoOptional();
 
   const fetchVentures = async () => {
     const res = await fetch('/api/ventures');
@@ -225,6 +227,27 @@ export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentur
     const data = await res.json();
     if (res.ok) {
       setVentures((p) => p.map((v) => (v.id === id ? data : v)));
+      if (prev && undo) {
+        const inv: Record<string, unknown> = {};
+        for (const k of Object.keys(updates) as (keyof Venture)[]) {
+          inv[k as string] = prev[k] as unknown;
+        }
+        if (Object.keys(inv).length > 0) {
+          undo.pushUndo({
+            label: 'Kanban: edit project',
+            undo: async () => {
+              const r = await fetch(`/api/ventures/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(inv),
+              });
+              if (!r.ok) throw new Error('Undo failed');
+              const restored = await r.json();
+              setVentures((p) => p.map((v) => (v.id === id ? restored : v)));
+            },
+          });
+        }
+      }
       return true;
     }
     if (prev) setVentures((p) => p.map((v) => (v.id === id ? prev : v)));
@@ -239,6 +262,18 @@ export function KanbanBoard({ refreshTrigger, onVentureAddedToTimeline, onVentur
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       onVentureDeleted?.();
+      undo?.pushUndo({
+        label: 'Delete project',
+        undo: async () => {
+          const r = await fetch(`/api/ventures/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deleted_at: null }),
+          });
+          if (!r.ok) throw new Error('Undo failed');
+          await fetchVentures();
+        },
+      });
       return true;
     }
     if (removed) setVentures((p) => [...p, removed].sort((a, b) => a.backlog_priority - b.backlog_priority));

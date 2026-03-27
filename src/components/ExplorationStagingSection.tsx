@@ -13,6 +13,7 @@ import { arrayMove, horizontalListSortingStrategy, SortableContext, useSortable 
 import { CSS } from '@dnd-kit/utilities';
 import type { Venture } from '@/types';
 import { useToast } from '@/components/Toast';
+import { useUndoOptional } from '@/contexts/UndoContext';
 import { DeleteVentureConfirmModal } from '@/components/DeleteVentureConfirmModal';
 
 function getWeekStartString(d: Date): string {
@@ -366,6 +367,7 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
   const [employees, setEmployees] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const undo = useUndoOptional();
 
   useEffect(() => {
     let cancelled = false;
@@ -388,6 +390,7 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
   }, [refreshTrigger]);
 
   const updateVenture = async (id: number, updates: Partial<Venture>): Promise<{ ok: boolean; error?: string }> => {
+    const prev = ventures.find((v) => v.id === id);
     const res = await fetch(`/api/ventures/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -397,6 +400,28 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
     if (res.ok) {
       setVentures((v) => v.map((x) => (x.id === id ? data : x)));
       onRefresh?.();
+      if (prev && undo) {
+        const inv: Record<string, unknown> = {};
+        for (const k of Object.keys(updates) as (keyof Venture)[]) {
+          inv[k as string] = prev[k] as unknown;
+        }
+        if (Object.keys(inv).length > 0) {
+          undo.pushUndo({
+            label: 'Pre-Exploration: edit project',
+            undo: async () => {
+              const r = await fetch(`/api/ventures/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(inv),
+              });
+              if (!r.ok) throw new Error('Undo failed');
+              const restored = await r.json();
+              setVentures((v) => v.map((x) => (x.id === id ? restored : x)));
+              onRefresh?.();
+            },
+          });
+        }
+      }
       return { ok: true };
     }
     return { ok: false, error: typeof data?.error === 'string' ? data.error : 'Failed to update venture' };
@@ -407,6 +432,18 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
     if (res.ok) {
       setVentures((v) => v.filter((x) => x.id !== id));
       onRefresh?.();
+      undo?.pushUndo({
+        label: 'Delete project',
+        undo: async () => {
+          const r = await fetch(`/api/ventures/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deleted_at: null }),
+          });
+          if (!r.ok) throw new Error('Undo failed');
+          onRefresh?.();
+        },
+      });
       return true;
     }
     return false;
@@ -475,6 +512,7 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
     const oldIndex = ventures.findIndex((v) => `exploration-${v.id}` === active.id);
     const newIndex = ventures.findIndex((v) => `exploration-${v.id}` === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
+    const previousIds = ventures.map((v) => v.id);
     const reordered = arrayMove(ventures, oldIndex, newIndex);
     setVentures(reordered);
     const ventureIds = reordered.map((v) => v.id);
@@ -487,6 +525,18 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
       setVentures(ventures);
       onRefresh?.();
     } else {
+      undo?.pushUndo({
+        label: 'Reorder Pre-Exploration',
+        undo: async () => {
+          const r = await fetch('/api/ventures/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ventureIds: previousIds }),
+          });
+          if (!r.ok) throw new Error('Undo failed');
+          onRefresh?.();
+        },
+      });
       onRefresh?.();
     }
   };
