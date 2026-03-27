@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { Venture, VenturePhase, Allocation, Employee } from '@/types';
 import {
   getDateRange,
@@ -13,6 +13,7 @@ import {
   type ZoomLevel,
 } from './timeline/TimeAxis';
 import { useTimelineSyncOptional } from '@/contexts/TimelineSyncContext';
+import { comparePeopleTags } from '@/lib/people-tags';
 
 function getWeekStartString(d: Date): string {
   const day = d.getDay();
@@ -561,6 +562,14 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
     }
   });
 
+  const sortedEmployees = useMemo(() => {
+    return [...employees].sort((a, b) => {
+      const d = comparePeopleTags(a.people_tag, b.people_tag);
+      if (d !== 0) return d;
+      return a.name.localeCompare(b.name);
+    });
+  }, [employees]);
+
   const runAudit = async () => {
     setAuditLoading(true);
     setAuditResult(null);
@@ -736,8 +745,11 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
                 )}
               </div>
             </div>
-            {/* Data rows */}
-            {employees.map((emp) => {
+            {/* Data rows — sorted by role tag, then name */}
+            {sortedEmployees.map((emp, empIdx) => {
+              const prevTag = sortedEmployees[empIdx - 1]?.people_tag ?? null;
+              const thisTag = emp.people_tag ?? null;
+              const showTagGroupHeader = empIdx === 0 || prevTag !== thisTag;
               const weekTotals = byEmployeeAndWeek.get(emp.id) ?? new Map();
               const isExpanded = expandedId === emp.id;
               const rawSegments = buildAllocationSegments(
@@ -752,6 +764,19 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
 
               return (
                 <div key={emp.id} className="last:[&>*:last-child]:border-b-0">
+                  {showTagGroupHeader && (
+                    <div className="flex border-b border-zinc-200 bg-zinc-100/90">
+                      <div className="sticky left-0 z-10 w-48 shrink-0 border-r border-zinc-200 bg-zinc-100/95 px-4 py-2">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-600">
+                          {emp.people_tag ?? 'Unassigned'}
+                        </span>
+                      </div>
+                      <div
+                        className="flex min-w-0 items-center border-zinc-200 bg-zinc-100/90 px-3 py-2"
+                        style={{ width: gridWidth }}
+                      />
+                    </div>
+                  )}
                   <div className="flex border-b border-zinc-100">
                     <div className="sticky left-0 z-10 w-48 shrink-0 border-r border-zinc-200 bg-white px-4 py-2">
                       <button

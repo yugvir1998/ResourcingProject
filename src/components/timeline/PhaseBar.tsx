@@ -161,7 +161,7 @@ export function PhaseBar({
               const isLead = primaryContactId != null ? p.id === primaryContactId : idx === 0;
               const isPotentialHire = String(p.scenario_tag ?? '').toLowerCase() === 'potential_hire';
               const bgClass = isPotentialHire
-                ? 'potential-hire-outline-compact text-zinc-800'
+                ? 'border border-zinc-300/75 border-l-[3px] border-l-violet-500 bg-white/95 text-zinc-800 shadow-sm'
                 : isLead
                   ? isPlanned || isPause
                     ? 'bg-zinc-300 text-zinc-700'
@@ -181,7 +181,7 @@ export function PhaseBar({
                 <span
                   key={p.id}
                   className={'flex max-w-12 items-center justify-center gap-0.5 overflow-hidden rounded-full px-1.5 font-medium ' + sizeClass + ' ' + bgClass}
-                  title={isPotentialHire ? `${p.name} (Potential hire)` : p.name}
+                  title={isPotentialHire ? `${p.name} — open role (not hired yet)` : p.name}
                   onContextMenu={handleContextMenu}
                 >
                   <span className="truncate">{getFirstName(p.name)}</span>

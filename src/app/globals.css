@@ -79,14 +79,3 @@ select:focus-visible {
   animation: slide-in-from-right 0.2s ease-out forwards;
 }
 
-/* Potential hire: neutral gray dashed outline (thick border so dashes read clearly at small sizes) */
-@layer utilities {
-  .potential-hire-outline {
-    border: 3px dashed rgb(82 82 91); /* zinc-600 */
-    background-color: #fff;
-  }
-  .potential-hire-outline-compact {
-    border: 2px dashed rgb(82 82 91);
-    background-color: #fff;
-  }
-}

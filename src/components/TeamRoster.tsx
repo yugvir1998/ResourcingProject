@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, Fragment, useMemo } from 'react';
+import { useState, useEffect, Fragment, useMemo, useId } from 'react';
 import type { Employee, EmployeeAllocations, ScenarioTag } from '@/types';
+import { PEOPLE_TAG_OPTIONS } from '@/types';
+import { MAX_PEOPLE_TAG_LENGTH, normalizePeopleTag } from '@/lib/people-tags';
 import { useToast } from '@/components/Toast';
 import { VENTURE_CREATION, STUDIO_ADMINISTRATION, DEFAULT_ALLOCATIONS } from '@/lib/allocations';
 
@@ -101,15 +103,55 @@ function AllocationChips({ allocations }: { allocations: EmployeeAllocations | n
   );
 }
 
+function RoleTagField({
+  value,
+  onChange,
+  placeholder = 'e.g. Engineer or a custom label',
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const listId = useId();
+  return (
+    <div className="space-y-1">
+      <input
+        type="text"
+        list={listId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        maxLength={MAX_PEOPLE_TAG_LENGTH}
+        placeholder={placeholder}
+        className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+      />
+      <datalist id={listId}>
+        {PEOPLE_TAG_OPTIONS.map((t) => (
+          <option key={t} value={t} />
+        ))}
+      </datalist>
+      <p className="text-xs text-zinc-500">
+        Use a suggestion or type your own (max {MAX_PEOPLE_TAG_LENGTH} characters). Leave empty for unassigned.
+      </p>
+    </div>
+  );
+}
+
 export function TeamRoster() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState<{ name: string; title: string; scenario_tag: ScenarioTag; allocations: EmployeeAllocations }>({
+  const [form, setForm] = useState<{
+    name: string;
+    title: string;
+    scenario_tag: ScenarioTag;
+    people_tag: string;
+    allocations: EmployeeAllocations;
+  }>({
     name: '',
     title: '',
     scenario_tag: 'potential_hire',
+    people_tag: '',
     allocations: { ...DEFAULT_ALLOCATIONS },
   });
   const [editingAllocations, setEditingAllocations] = useState<number | null>(null);
@@ -117,6 +159,7 @@ export function TeamRoster() {
   const [editDraftName, setEditDraftName] = useState('');
   const [editDraftTitle, setEditDraftTitle] = useState('');
   const [editDraftTag, setEditDraftTag] = useState<ScenarioTag>('nitwit');
+  const [editDraftPeopleTag, setEditDraftPeopleTag] = useState('');
   const [importing, setImporting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -137,14 +180,32 @@ export function TeamRoster() {
     e.preventDefault();
     setFormError(null);
     setSubmitting(true);
-    const payload = { name: form.name.trim(), title: form.title.trim(), scenario_tag: form.scenario_tag, allocations: form.allocations };
+    const tagTrim = form.people_tag.trim();
+    if (tagTrim.length > MAX_PEOPLE_TAG_LENGTH) {
+      setFormError(`Role tag must be at most ${MAX_PEOPLE_TAG_LENGTH} characters`);
+      setSubmitting(false);
+      return;
+    }
+    const payload = {
+      name: form.name.trim(),
+      title: form.title.trim(),
+      scenario_tag: form.scenario_tag,
+      people_tag: normalizePeopleTag(form.people_tag),
+      allocations: form.allocations,
+    };
     const optimistic: Employee = {
       id: -Date.now(),
       ...payload,
       created_at: new Date().toISOString(),
     };
     setEmployees((prev) => [...prev, optimistic].sort((a, b) => a.name.localeCompare(b.name)));
-    setForm({ name: '', title: '', scenario_tag: 'potential_hire', allocations: { ...DEFAULT_ALLOCATIONS } });
+    setForm({
+      name: '',
+      title: '',
+      scenario_tag: 'potential_hire',
+      people_tag: '',
+      allocations: { ...DEFAULT_ALLOCATIONS },
+    });
     setShowForm(false);
 
     const res = await fetch('/api/employees', {
@@ -164,13 +225,12 @@ export function TeamRoster() {
     }
   };
 
-  const updateEmployee = async (id: number, updates: Partial<Employee>) => {
+  const updateEmployee = async (id: number, updates: Partial<Employee>): Promise<boolean> => {
     const prev = employees.find((e) => e.id === id);
     if (prev) {
       setEmployees((prevList) =>
         prevList.map((e) => (e.id === id ? { ...e, ...updates } : e))
       );
-      if ('allocations' in updates) setEditingAllocations(null);
     }
     const res = await fetch(`/api/employees/${id}`, {
       method: 'PATCH',
@@ -180,9 +240,20 @@ export function TeamRoster() {
     if (res.ok) {
       const updated = await res.json();
       setEmployees((prevList) => prevList.map((e) => (e.id === id ? updated : e)));
-    } else {
-      if (prev) setEmployees((prevList) => prevList.map((e) => (e.id === id ? prev : e)));
+      return true;
     }
+    if (prev) {
+      setEmployees((prevList) => prevList.map((e) => (e.id === id ? prev : e)));
+    }
+    let message = 'Could not save changes';
+    try {
+      const err = await res.json();
+      if (err.error) message = typeof err.error === 'string' ? err.error : message;
+    } catch {
+      /* ignore */
+    }
+    toast.show(message);
+    return false;
   };
 
   const handleDelete = async (e: Employee) => {
@@ -346,38 +417,44 @@ export function TeamRoster() {
               {formError}
             </p>
           )}
-          <div className="mb-5 grid gap-4 sm:grid-cols-3">
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-zinc-800">Name</label>
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                required
-                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                placeholder="e.g. Yugvir"
-              />
+          <div className="mb-5 space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-zinc-800">Name</label>
+                <input
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  required
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                  placeholder="e.g. Yugvir"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-zinc-800">Title</label>
+                <input
+                  type="text"
+                  value={form.title}
+                  onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                  placeholder="e.g. Venture Lead"
+                />
+              </div>
+              <div className="sm:col-span-2 lg:col-span-1">
+                <label className="mb-1.5 block text-sm font-medium text-zinc-800">Hire status</label>
+                <select
+                  value={form.scenario_tag}
+                  onChange={(e) => setForm((f) => ({ ...f, scenario_tag: e.target.value as ScenarioTag }))}
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                >
+                  <option value="nitwit">NITWIT (current hire)</option>
+                  <option value="potential_hire">Potential hire</option>
+                </select>
+              </div>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-zinc-800">Title</label>
-              <input
-                type="text"
-                value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                placeholder="e.g. Venture Lead"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-zinc-800">Tag</label>
-              <select
-                value={form.scenario_tag}
-                onChange={(e) => setForm((f) => ({ ...f, scenario_tag: e.target.value as ScenarioTag }))}
-                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-              >
-                <option value="nitwit">NITWIT (current hire)</option>
-                <option value="potential_hire">Potential hire</option>
-              </select>
+              <label className="mb-1.5 block text-sm font-medium text-zinc-800">Role tag</label>
+              <RoleTagField value={form.people_tag} onChange={(v) => setForm((f) => ({ ...f, people_tag: v }))} />
             </div>
           </div>
           <div className="mb-4">
@@ -415,6 +492,7 @@ export function TeamRoster() {
             <tr className="border-b border-zinc-200 bg-zinc-50/80">
               <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">Name</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">Title</th>
+              <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">Role tag</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">Allocations</th>
               <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-zinc-500">Actions</th>
             </tr>
@@ -422,7 +500,7 @@ export function TeamRoster() {
           <tbody className="divide-y divide-zinc-100">
             {employees.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-5 py-20 text-center">
+                <td colSpan={5} className="px-5 py-20 text-center">
                   <div className="mx-auto flex max-w-md flex-col items-center gap-5">
                     <div className="relative">
                       <div className="absolute -inset-4 rounded-full bg-gradient-to-br from-zinc-100 to-zinc-200/80 opacity-60" />
@@ -479,6 +557,15 @@ export function TeamRoster() {
                       </div>
                     </td>
                     <td className="px-5 py-3.5 text-sm text-zinc-600">{e.title || '—'}</td>
+                    <td className="px-5 py-3.5 text-sm text-zinc-600">
+                      {e.people_tag ? (
+                        <span className="inline-flex rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-medium text-zinc-700">
+                          {e.people_tag}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-400">—</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3.5">
                       {editingAllocations === e.id ? (
                         <span className="text-sm text-zinc-500">Editing…</span>
@@ -507,6 +594,7 @@ export function TeamRoster() {
                             setEditDraftName(e.name);
                             setEditDraftTitle(e.title || '');
                             setEditDraftTag((e.scenario_tag as ScenarioTag) || 'nitwit');
+                            setEditDraftPeopleTag(e.people_tag ?? '');
                             setEditingAllocations(e.id);
                           }}
                         className="rounded-lg p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-900"
@@ -538,39 +626,49 @@ export function TeamRoster() {
                 </tr>
                 {editingAllocations === e.id && (
                   <tr key={`${e.id}-edit`}>
-                    <td colSpan={4} className="bg-zinc-50/30 px-5 py-4">
+                    <td colSpan={5} className="bg-zinc-50/30 px-5 py-4">
                       <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm ring-1 ring-zinc-900/5">
-                        <div className="mb-4 grid gap-4 sm:grid-cols-2">
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium text-zinc-800">Name</label>
-                            <input
-                              type="text"
-                              value={editDraftName}
-                              onChange={(e) => setEditDraftName(e.target.value)}
-                              className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                              placeholder="Employee name"
-                            />
+                        <div className="mb-4 space-y-4">
+                          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                            <div>
+                              <label className="mb-1.5 block text-sm font-medium text-zinc-800">Name</label>
+                              <input
+                                type="text"
+                                value={editDraftName}
+                                onChange={(e) => setEditDraftName(e.target.value)}
+                                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                                placeholder="Employee name"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1.5 block text-sm font-medium text-zinc-800">Title</label>
+                              <input
+                                type="text"
+                                value={editDraftTitle}
+                                onChange={(e) => setEditDraftTitle(e.target.value)}
+                                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                                placeholder="e.g. Venture Lead"
+                              />
+                            </div>
+                            <div className="sm:col-span-2 lg:col-span-1">
+                              <label className="mb-1.5 block text-sm font-medium text-zinc-800">Hire status</label>
+                              <select
+                                value={editDraftTag}
+                                onChange={(e) => setEditDraftTag(e.target.value as ScenarioTag)}
+                                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                              >
+                                <option value="nitwit">NITWIT (current hire)</option>
+                                <option value="potential_hire">Potential hire</option>
+                              </select>
+                            </div>
                           </div>
                           <div>
-                            <label className="mb-1.5 block text-sm font-medium text-zinc-800">Title</label>
-                            <input
-                              type="text"
-                              value={editDraftTitle}
-                              onChange={(e) => setEditDraftTitle(e.target.value)}
-                              className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                              placeholder="e.g. Venture Lead"
+                            <label className="mb-1.5 block text-sm font-medium text-zinc-800">Role tag</label>
+                            <RoleTagField
+                              value={editDraftPeopleTag}
+                              onChange={setEditDraftPeopleTag}
+                              placeholder="Role tag or custom label"
                             />
-                          </div>
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium text-zinc-800">Tag</label>
-                            <select
-                              value={editDraftTag}
-                              onChange={(e) => setEditDraftTag(e.target.value as ScenarioTag)}
-                              className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                            >
-                              <option value="nitwit">NITWIT (current hire)</option>
-                              <option value="potential_hire">Potential hire</option>
-                            </select>
                           </div>
                         </div>
                         <div className="mb-4">
@@ -588,13 +686,21 @@ export function TeamRoster() {
                           <button
                             onClick={async () => {
                               if (!editDraftName.trim()) return;
-                              await updateEmployee(e.id, {
+                              if (editDraftPeopleTag.trim().length > MAX_PEOPLE_TAG_LENGTH) {
+                                toast.show(`Role tag must be at most ${MAX_PEOPLE_TAG_LENGTH} characters`);
+                                return;
+                              }
+                              const ok = await updateEmployee(e.id, {
                                 name: editDraftName.trim(),
                                 title: editDraftTitle.trim(),
                                 scenario_tag: editDraftTag,
+                                people_tag: normalizePeopleTag(editDraftPeopleTag),
                                 allocations: editDraft,
                               });
-                              setEditingAllocations(null);
+                              if (ok) {
+                                setEditingAllocations(null);
+                                toast.show('Saved');
+                              }
                             }}
                             disabled={!editDraftName.trim()}
                             className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"

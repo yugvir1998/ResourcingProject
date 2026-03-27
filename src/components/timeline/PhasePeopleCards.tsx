@@ -82,8 +82,16 @@ export function PhasePeopleCards({
         return (
           <div
             key={a.id}
-            title={isPotentialHire ? 'Potential hire' : undefined}
-            className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] shadow-sm ${isPotentialHire ? 'potential-hire-outline' : 'border border-zinc-200'} ${!isPotentialHire && (isLead ? 'bg-white' : 'bg-white/60')}`}
+            title={
+              isPotentialHire
+                ? `${emp?.name ?? 'Role'} — open role (not hired yet)`
+                : undefined
+            }
+            className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] shadow-sm ${
+              isPotentialHire
+                ? 'border border-violet-200/80 border-l-[3px] border-l-violet-500 bg-violet-50/90 text-zinc-800'
+                : `border border-zinc-200 ${isLead ? 'bg-white' : 'bg-white/60'}`
+            }`}
           >
             {onSetProjectLead && (
               <button

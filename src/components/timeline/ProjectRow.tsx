@@ -207,9 +207,11 @@ export function ProjectRow({
                                 <div
                                   key={emp.id}
                                   className={`flex h-4 min-w-4 max-w-12 items-center justify-center gap-0.5 rounded-full px-1 text-zinc-800 ${
-                                    isPotentialHire ? 'potential-hire-outline-compact' : getAvatarClass(isLead)
+                                    isPotentialHire
+                                      ? 'border border-zinc-300/75 border-l-[3px] border-l-violet-500 bg-white/95 shadow-sm'
+                                      : getAvatarClass(isLead)
                                   }`}
-                                  title={isPotentialHire ? `${emp.name} (Potential hire)` : emp.name}
+                                  title={isPotentialHire ? `${emp.name} — open role (not hired yet)` : emp.name}
                                   onContextMenu={
                                     onSetProjectLead
                                       ? (e) => {

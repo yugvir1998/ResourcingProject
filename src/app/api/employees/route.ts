@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/supabase';
+import { MAX_PEOPLE_TAG_LENGTH, normalizePeopleTag } from '@/lib/people-tags';
 
 export async function GET() {
   try {
@@ -19,26 +20,39 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, title = '', allocations = {}, scenario_tag = 'potential_hire' } = body;
+    const { name, title = '', allocations = {}, scenario_tag = 'potential_hire', people_tag: rawPeopleTag } = body;
 
     if (!name) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
 
     const tag = scenario_tag === 'nitwit' ? 'nitwit' : 'potential_hire';
+    const rawTrim = rawPeopleTag == null ? '' : String(rawPeopleTag).trim();
+    if (rawTrim.length > MAX_PEOPLE_TAG_LENGTH) {
+      return NextResponse.json(
+        { error: `people_tag must be at most ${MAX_PEOPLE_TAG_LENGTH} characters` },
+        { status: 400 }
+      );
+    }
+    const peopleTag = normalizePeopleTag(rawPeopleTag);
     const supabase = getSupabase();
 
-    const basePayload = { name, title: title || '', allocations, spectrum: 'other' };
-    let { data, error } = await supabase
-      .from('employees')
-      .insert({ ...basePayload, scenario_tag: tag })
-      .select()
-      .single();
+    const baseCore = { name, title: title || '', allocations, spectrum: 'other' };
+    const insertPayload: Record<string, unknown> = { ...baseCore, scenario_tag: tag };
+    if (peopleTag !== null) insertPayload.people_tag = peopleTag;
 
-    if (error && (error.message?.includes('scenario_tag') || error.message?.includes('does not exist'))) {
-      const retry = await supabase.from('employees').insert(basePayload).select().single();
-      data = retry.data;
-      error = retry.error;
+    let { data, error } = await supabase.from('employees').insert(insertPayload).select().single();
+
+    if (error?.message?.includes('people_tag')) {
+      const { people_tag: _p, ...withoutPeopleTag } = insertPayload;
+      const r = await supabase.from('employees').insert(withoutPeopleTag).select().single();
+      data = r.data;
+      error = r.error;
+    }
+    if (error?.message?.includes('scenario_tag') || error?.message?.includes('does not exist')) {
+      const r = await supabase.from('employees').insert(baseCore).select().single();
+      data = r.data;
+      error = r.error;
     }
 
     if (error) {

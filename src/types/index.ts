@@ -58,6 +58,15 @@ export type EmployeeAllocations = Partial<Record<AllocationKey, number>>;
 
 export type ScenarioTag = 'nitwit' | 'potential_hire';
 
+/** Suggested role tags (roster + People Allocation); any other short label is allowed. */
+export const PEOPLE_TAG_OPTIONS = [
+  'Venture Leadership',
+  'Discovery / Product',
+  'Engineer',
+  'Design',
+  'Admin',
+] as const;
+
 export interface Employee {
   id: number;
   name: string;
@@ -65,6 +74,7 @@ export interface Employee {
   spectrum?: Spectrum | null;
   allocations?: EmployeeAllocations | null;
   scenario_tag?: ScenarioTag | null;
+  people_tag?: string | null;
   created_at: string;
 }
 
