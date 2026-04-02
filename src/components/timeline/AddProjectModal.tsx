@@ -80,7 +80,7 @@ export function AddProjectModal({ isOpen, onClose, onAdded }: AddProjectModalPro
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          status: choice === 'active' ? 'active' : v.status,
+          status: choice === 'active' ? 'active' : 'planned',
           timeline_visible: true,
           exploration_phase: 'discovery',
         }),

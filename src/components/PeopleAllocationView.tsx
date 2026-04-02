@@ -15,17 +15,65 @@ import {
 import { useTimelineSyncOptional } from '@/contexts/TimelineSyncContext';
 import { comparePeopleTags } from '@/lib/people-tags';
 import { isAllocationIncludedInCapacity } from '@/lib/phaseCapacity';
+import { ventureContributesToPeopleCapacity } from '@/lib/peopleCapacityVisibility';
+import { localDayEndMs, localDayStartMs } from '@/lib/localDateParse';
 
+/** Coerce Supabase BIGINT / JSON string ids so Map lookups match ventures and phases. */
+function normalizeAllocationRow(raw: Allocation): Allocation {
+  const phaseRaw = raw.phase_id as unknown;
+  const phaseNum =
+    phaseRaw == null || phaseRaw === '' ? NaN : Number(phaseRaw);
+  return {
+    ...raw,
+    id: Number(raw.id),
+    employee_id: Number(raw.employee_id),
+    venture_id: Number(raw.venture_id),
+    phase_id: Number.isFinite(phaseNum) ? phaseNum : null,
+    fte_percentage: Number(raw.fte_percentage),
+    week_start: String(raw.week_start).slice(0, 10),
+  };
+}
+
+/** Local-calendar Monday YYYY-MM-DD for grid keys (toISOString is UTC and breaks capacity rollups). */
 function getWeekStartString(d: Date): string {
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
   const monday = new Date(d);
   monday.setDate(diff);
-  return monday.toISOString().slice(0, 10);
+  monday.setHours(0, 0, 0, 0);
+  const y = monday.getFullYear();
+  const m = String(monday.getMonth() + 1).padStart(2, '0');
+  const dd = String(monday.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
 
 function normalizeWeekKey(weekStart: string): string {
   return String(weekStart).slice(0, 10);
+}
+
+/** True if grid week (Mon 00:00 → Sun 23:59:59 local) overlaps [rangeStart, rangeEnd] ms (inclusive). */
+function weekOverlapsInclusiveRange(weekMonday: Date, rangeStartMs: number, rangeEndMs: number): boolean {
+  const ws = new Date(
+    weekMonday.getFullYear(),
+    weekMonday.getMonth(),
+    weekMonday.getDate(),
+    0,
+    0,
+    0,
+    0
+  ).getTime();
+  const sunday = new Date(
+    weekMonday.getFullYear(),
+    weekMonday.getMonth(),
+    weekMonday.getDate(),
+    23,
+    59,
+    59,
+    999
+  );
+  sunday.setDate(sunday.getDate() + 6);
+  const we = sunday.getTime();
+  return !(we < rangeStartMs || ws > rangeEndMs);
 }
 
 function getCellColor(pct: number): string {
@@ -143,123 +191,6 @@ function getQuarterColumnBarPercent(
   return { leftPct, widthPct };
 }
 
-function getEffectiveSpan(
-  allocation: Allocation,
-  phaseMap: Map<number, VenturePhase>,
-  viewStartTime: number,
-  viewEndTime: number
-): { start: string; end: string } | null {
-  const phase = allocation.phase_id ? phaseMap.get(allocation.phase_id) ?? null : null;
-  if (phase?.start_date && phase?.end_date) {
-    const phaseStart = new Date(phase.start_date).getTime();
-    const phaseEnd = new Date(phase.end_date).getTime();
-    if (Number.isNaN(phaseStart) || Number.isNaN(phaseEnd)) return null;
-    if (phaseEnd < viewStartTime || phaseStart > viewEndTime) return null;
-    const start = new Date(Math.max(phaseStart, viewStartTime));
-    const end = new Date(Math.min(phaseEnd, viewEndTime));
-    return {
-      start: start.toISOString().slice(0, 10),
-      end: end.toISOString().slice(0, 10),
-    };
-  }
-  const weekTime = new Date(allocation.week_start).getTime();
-  if (Number.isNaN(weekTime) || weekTime < viewStartTime || weekTime > viewEndTime) return null;
-  const weekKey = normalizeWeekKey(allocation.week_start);
-  return { start: weekKey, end: weekKey };
-}
-
-function buildAllocationSegments(
-  allocations: Allocation[],
-  employeeId: number,
-  ventureMap: Map<number, Venture>,
-  phaseMap: Map<number, VenturePhase>,
-  startTime: number,
-  endTime: number
-): AllocationSegment[] {
-  const segments: AllocationSegment[] = [];
-  const empAllocs = allocations.filter((a) => a.employee_id === employeeId);
-
-  for (const a of empAllocs) {
-    if (!isAllocationIncludedInCapacity(a.phase_id, phaseMap)) continue;
-    const venture = ventureMap.get(a.venture_id) ?? ({ id: a.venture_id, name: `Venture ${a.venture_id}` } as Venture);
-    const phase = a.phase_id ? phaseMap.get(a.phase_id) ?? null : null;
-    const span = getEffectiveSpan(a, phaseMap, startTime, endTime);
-    if (!span) continue;
-
-    segments.push({
-      venture,
-      phase,
-      fte: a.fte_percentage,
-      startWeek: span.start,
-      endWeek: span.end,
-    });
-  }
-  segments.sort((a, b) => a.startWeek.localeCompare(b.startWeek));
-  return segments;
-}
-
-const PRE_EXPLORATION_VENTURE: Venture = { id: -1, name: 'Pre Exploration', status: 'exploration_staging' } as Venture;
-
-function mergeAllocationSegments(segments: AllocationSegment[]): AllocationSegment[] {
-  if (segments.length === 0) return [];
-  const preExploration = segments.filter((s) => s.venture.status === 'exploration_staging');
-  const other = segments.filter((s) => s.venture.status !== 'exploration_staging');
-
-  const merged: AllocationSegment[] = [];
-
-  if (preExploration.length > 0) {
-    const startWeek = preExploration.reduce((min, s) => (s.startWeek < min ? s.startWeek : min), preExploration[0].startWeek);
-    const endWeek = preExploration.reduce((max, s) => (s.endWeek > max ? s.endWeek : max), preExploration[0].endWeek);
-    const preExplorationFteByVenture = new Map<number, number>();
-    for (const seg of preExploration) {
-      if (!preExplorationFteByVenture.has(seg.venture.id)) {
-        preExplorationFteByVenture.set(seg.venture.id, seg.fte);
-      }
-    }
-    const totalFte = [...preExplorationFteByVenture.values()].reduce((s, f) => s + f, 0);
-    merged.push({
-      venture: PRE_EXPLORATION_VENTURE,
-      phase: null,
-      fte: totalFte,
-      fteDisplay: `${totalFte}%`,
-      startWeek,
-      endWeek,
-    });
-  }
-
-  const supportSegments = other.filter((s) => s.venture.status === 'support' && s.phase === null);
-  const rest = other.filter((s) => !(s.venture.status === 'support' && s.phase === null));
-
-  const mergeByVentureId = (segs: AllocationSegment[], labelSupport: boolean) => {
-    const byVenture = new Map<number, AllocationSegment[]>();
-    for (const seg of segs) {
-      if (!byVenture.has(seg.venture.id)) byVenture.set(seg.venture.id, []);
-      byVenture.get(seg.venture.id)!.push(seg);
-    }
-    for (const [, group] of byVenture) {
-      const startWeek = group.reduce((min, s) => (s.startWeek < min ? s.startWeek : min), group[0].startWeek);
-      const endWeek = group.reduce((max, s) => (s.endWeek > max ? s.endWeek : max), group[0].endWeek);
-      const fteMin = Math.min(...group.map((s) => s.fte));
-      const fteMax = Math.max(...group.map((s) => s.fte));
-      const fteDisplay = fteMin === fteMax ? `${fteMin}%` : `${fteMin}-${fteMax}%`;
-      const v = group[0].venture;
-      merged.push({
-        venture: labelSupport ? { ...v, name: `Support - ${v.name}` } : v,
-        phase: group[0].phase,
-        fte: group[0].fte,
-        fteDisplay,
-        startWeek,
-        endWeek,
-      });
-    }
-  };
-
-  mergeByVentureId(supportSegments, true);
-  mergeByVentureId(rest, false);
-  merged.sort((a, b) => a.startWeek.localeCompare(b.startWeek));
-  return merged;
-}
-
 type VentureBreakdown = { venture: Venture; phase: VenturePhase | null; fte: number };
 
 type AllocationSegment = {
@@ -270,6 +201,146 @@ type AllocationSegment = {
   startWeek: string;
   endWeek: string;
 };
+
+const PRE_EXPLORATION_VENTURE: Venture = { id: -1, name: 'Pre Exploration', status: 'exploration_staging' } as Venture;
+
+/** Monday YYYY-MM-DD of the calendar week that contains the given phase end date (local). */
+function mondayWeekKeyContainingPhaseEndDate(phaseEndYmd: string): string {
+  const ymd = phaseEndYmd.slice(0, 10);
+  const [y, mo, d] = ymd.split('-').map(Number);
+  if (!y || !mo || !d) return ymd;
+  const endDay = new Date(y, mo - 1, d, 12, 0, 0, 0);
+  const day = endDay.getDay();
+  const diff = endDay.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(endDay);
+  monday.setDate(diff);
+  monday.setHours(0, 0, 0, 0);
+  const yy = monday.getFullYear();
+  const mm = String(monday.getMonth() + 1).padStart(2, '0');
+  const dd = String(monday.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+/** Latest phased phase end for this person+venture; caps bar end to match timeline phases. */
+function latestPhasedEndWeekKeyForEmpVenture(
+  employeeId: number,
+  ventureId: number,
+  allocations: Allocation[],
+  phaseMap: Map<number, VenturePhase>
+): string | null {
+  let bestEnd = '';
+  for (const a of allocations) {
+    if (Number(a.employee_id) !== employeeId || Number(a.venture_id) !== ventureId) continue;
+    if (a.phase_id == null) continue;
+    const ph = phaseMap.get(Number(a.phase_id));
+    if (!ph?.end_date) continue;
+    const ymd = String(ph.end_date).slice(0, 10);
+    if (ymd > bestEnd) bestEnd = ymd;
+  }
+  if (!bestEnd) return null;
+  return mondayWeekKeyContainingPhaseEndDate(bestEnd);
+}
+
+/**
+ * One row per venture, bar span = weeks that actually have capacity in the grid (same source as cells).
+ * End is capped by latest phased end date so bars don't run past timeline phases (extra week / null rows).
+ */
+function buildAllocationSegmentsFromBreakdown(
+  weekBreakdown: Map<string, VentureBreakdown[]>,
+  weeks: Date[],
+  ventureMap: Map<number, Venture>,
+  employeeId: number,
+  planningAllocations: Allocation[],
+  phaseMap: Map<number, VenturePhase>
+): AllocationSegment[] {
+  type Acc = { minW: string; maxW: string; weeklyTotals: number[] };
+  const byVid = new Map<number, Acc>();
+
+  let preMin = '';
+  let preMax = '';
+  const preWeekly: number[] = [];
+
+  for (const w of weeks) {
+    const ws = getWeekStartString(w);
+    const row = weekBreakdown.get(ws) ?? [];
+
+    let preSum = 0;
+    const vSum = new Map<number, number>();
+
+    for (const { venture, phase, fte } of row) {
+      if (venture.status === 'exploration_staging' && phase === null) {
+        preSum += fte;
+      } else {
+        const vid = Number(venture.id);
+        vSum.set(vid, (vSum.get(vid) ?? 0) + fte);
+      }
+    }
+
+    if (preSum > 0) {
+      if (!preMin) preMin = ws;
+      preMax = ws;
+      preWeekly.push(preSum);
+    }
+
+    for (const [vid, sum] of vSum) {
+      if (sum <= 0) continue;
+      if (!byVid.has(vid)) {
+        byVid.set(vid, { minW: ws, maxW: ws, weeklyTotals: [sum] });
+      } else {
+        const a = byVid.get(vid)!;
+        a.maxW = ws;
+        a.weeklyTotals.push(sum);
+      }
+    }
+  }
+
+  const out: AllocationSegment[] = [];
+
+  if (preWeekly.length > 0 && preMin && preMax) {
+    const tmin = Math.min(...preWeekly);
+    const tmax = Math.max(...preWeekly);
+    out.push({
+      venture: PRE_EXPLORATION_VENTURE,
+      phase: null,
+      fte: tmin,
+      fteDisplay: tmin === tmax ? `${tmin}%` : `${tmin}-${tmax}%`,
+      startWeek: preMin,
+      endWeek: preMax,
+    });
+  }
+
+  const rest: AllocationSegment[] = [];
+  for (const [vid, acc] of byVid) {
+    const v =
+      ventureMap.get(vid) ??
+      ({ id: vid, name: `Venture ${vid}`, status: 'active' } as Venture);
+    const fteMin = Math.min(...acc.weeklyTotals);
+    const fteMax = Math.max(...acc.weeklyTotals);
+    const labelVenture =
+      v.status === 'support' ? { ...v, name: `Support - ${v.name}` } : v;
+    const phaseCap = latestPhasedEndWeekKeyForEmpVenture(
+      employeeId,
+      vid,
+      planningAllocations,
+      phaseMap
+    );
+    let endW = acc.maxW;
+    if (phaseCap != null && endW > phaseCap) endW = phaseCap;
+    rest.push({
+      venture: labelVenture,
+      phase: null,
+      fte: fteMin,
+      fteDisplay: fteMin === fteMax ? `${fteMin}%` : `${fteMin}-${fteMax}%`,
+      startWeek: acc.minW,
+      endWeek: endW,
+    });
+  }
+
+  rest.sort((a, b) => a.venture.name.localeCompare(b.venture.name));
+  out.push(...rest);
+  out.sort((a, b) => a.startWeek.localeCompare(b.startWeek) || a.venture.name.localeCompare(b.venture.name));
+  return out;
+}
 
 function PersonAllocationExpandableRow({
   segments,
@@ -305,7 +376,7 @@ function PersonAllocationExpandableRow({
         const phaseLabel = seg.phase ? ` (${seg.phase.phase.replace(/_/g, ' ')})` : '';
         return (
           <div
-            key={`${seg.venture.id}-${seg.startWeek}-${idx}`}
+            key={`${seg.venture.id}-${seg.phase?.id ?? 'np'}-${seg.startWeek}-${seg.endWeek}-${idx}`}
             className="flex border-b border-zinc-100 bg-zinc-50/50 last:border-b-0"
           >
             <div className="sticky left-0 z-10 w-48 shrink-0 border-r border-zinc-200 bg-zinc-50/95 px-4 py-1.5 pl-8">
@@ -355,6 +426,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const hasScrolledToTodayRef = useRef(false);
   const sync = useTimelineSyncOptional();
+  const useSyncedAxis = !!(sync?.axisHydrated);
 
   const fetchData = async () => {
     const [aRes, eRes, pRes, vRes, mRes] = await Promise.all([
@@ -371,8 +443,10 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
       vRes.json(),
       mRes.json(),
     ]);
-    setAllocations(aData || []);
-    setEmployees(eData || []);
+    const rawAllocs = Array.isArray(aData) ? aData : [];
+    setAllocations(rawAllocs.map((x: Allocation) => normalizeAllocationRow(x)));
+    const rawEmp = Array.isArray(eData) ? eData : [];
+    setEmployees(rawEmp.map((e: Employee) => ({ ...e, id: Number(e.id) })));
     setPhases(pData || []);
     setVentures(vData || []);
     setMilestones(mData || []);
@@ -383,34 +457,27 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
     fetchData();
   }, [refreshTrigger]);
 
-  const phaseMap = new Map(phases.map((p) => [p.id, p]));
-  const ventureMap = new Map(ventures.map((v) => [v.id, v]));
+  const phaseMap = new Map(phases.map((p) => [Number(p.id), p]));
+  const ventureMap = new Map(ventures.map((v) => [Number(v.id), v]));
 
-  /** Match main timeline visibility: exclude hidden ventures from planning totals; always include support ventures. */
-  const includeVentureInPeoplePlanning = (v: Venture | undefined): boolean => {
-    if (!v) return false;
-    if (v.status === 'support') return true;
-    return v.timeline_visible === true && v.hidden_from_venture_tracker !== true;
-  };
   const planningAllocations = allocations.filter(
     (a) =>
-      includeVentureInPeoplePlanning(ventureMap.get(a.venture_id)) &&
+      ventureContributesToPeopleCapacity(ventureMap.get(a.venture_id)) &&
       isAllocationIncludedInCapacity(a.phase_id, phaseMap)
   );
 
   let { start: startDate, end: endDate } = getDateRange(phases, milestones);
-  // Expand range to include allocations and their phase spans (only when not using sync)
-  if (!sync && planningAllocations.length > 0) {
+  if (planningAllocations.length > 0) {
     const dates: number[] = [];
     for (const a of planningAllocations) {
       const phase = a.phase_id ? phaseMap.get(a.phase_id) ?? null : null;
       if (phase?.start_date && phase?.end_date) {
-        const ps = new Date(phase.start_date).getTime();
-        const pe = new Date(phase.end_date).getTime();
+        const ps = localDayStartMs(phase.start_date);
+        const pe = localDayEndMs(phase.end_date);
         if (!Number.isNaN(ps)) dates.push(ps);
         if (!Number.isNaN(pe)) dates.push(pe);
       } else {
-        const t = new Date(a.week_start).getTime();
+        const t = localDayStartMs(String(a.week_start));
         if (!Number.isNaN(t)) dates.push(t);
       }
     }
@@ -421,19 +488,24 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
       if (maxAlloc.getTime() > endDate.getTime()) endDate = maxAlloc;
     }
   }
-  const weeks = sync?.weeks ?? getWeeksBetween(startDate, endDate);
+  if (useSyncedAxis) {
+    startDate = sync!.startDate;
+    endDate = sync!.endDate;
+  }
+  const weeks = useSyncedAxis ? sync!.weeks : getWeeksBetween(startDate, endDate);
   const zoom: ZoomLevel = 'month';
   const baseColumnWidth = getColumnWidth(zoom);
-  const columnWidth = (sync?.columnWidth) ?? baseColumnWidth;
-  const useMonthZoom = !!sync;
+  const columnWidth = useSyncedAxis ? sync!.columnWidth : baseColumnWidth;
+  const useMonthZoom = useSyncedAxis;
   const displayLevel = useMonthZoom ? getDisplayLevel(columnWidth) : 'monthsWithWeeks';
   const months = getMonthsBetween(startDate, endDate);
-  const gridTotalWidth =
-    sync?.gridTotalWidth ?? getGridTotalWidth(zoom, startDate, endDate);
+  const gridTotalWidth = useSyncedAxis
+    ? sync!.gridTotalWidth
+    : getGridTotalWidth(zoom, startDate, endDate);
   const gridWidth = gridTotalWidth;
-  const totalDays =
-    (sync?.totalDays) ??
-    (Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) || 90);
+  const totalDays = useSyncedAxis
+    ? sync!.totalDays
+    : Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) || 90;
 
   // Build per-employee per-week totals (phase-based: use phase dates when available)
   const byEmployeeAndWeek = new Map<number, Map<string, number>>();
@@ -446,7 +518,6 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
 
   const startTime = startDate.getTime();
   const endTime = endDate.getTime();
-  const weekMs = 7 * 24 * 60 * 60 * 1000;
 
   for (const a of planningAllocations) {
     const phase = a.phase_id ? phaseMap.get(a.phase_id) ?? null : null;
@@ -457,13 +528,13 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
     let spanStart: number;
     let spanEnd: number;
     if (phase?.start_date && phase?.end_date) {
-      spanStart = new Date(phase.start_date).getTime();
-      spanEnd = new Date(phase.end_date).getTime();
+      spanStart = localDayStartMs(phase.start_date);
+      spanEnd = localDayEndMs(phase.end_date);
       if (Number.isNaN(spanStart) || Number.isNaN(spanEnd) || spanEnd < startTime || spanStart > endTime) continue;
       spanStart = Math.max(spanStart, startTime);
       spanEnd = Math.min(spanEnd, endTime);
     } else {
-      const weekTime = new Date(a.week_start).getTime();
+      const weekTime = localDayStartMs(String(a.week_start));
       if (Number.isNaN(weekTime) || weekTime < startTime || weekTime > endTime) continue;
       spanStart = weekTime;
       spanEnd = weekTime;
@@ -481,14 +552,15 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
     }
 
     for (const w of weeks) {
+      const wm = new Date(w.getFullYear(), w.getMonth(), w.getDate(), 0, 0, 0, 0);
+      if (!weekOverlapsInclusiveRange(wm, spanStart, spanEnd)) continue;
       const weekStart = getWeekStartString(w);
-      const weekStartTime = new Date(weekStart).getTime();
-      const weekEndTime = weekStartTime + weekMs - 1;
-      if (weekEndTime < spanStart || weekStartTime > spanEnd) continue;
       empWeek.set(weekStart, (empWeek.get(weekStart) ?? 0) + a.fte_percentage);
       if (!empBreakdown.has(weekStart)) empBreakdown.set(weekStart, []);
       const list = empBreakdown.get(weekStart)!;
-      const existing = list.find((x) => x.venture.id === venture.id && x.phase?.id === phase?.id);
+      const existing = list.find(
+        (x) => Number(x.venture.id) === Number(venture.id) && x.phase?.id === phase?.id
+      );
       if (existing) existing.fte += a.fte_percentage;
       else list.push({ venture, phase, fte: a.fte_percentage });
     }
@@ -504,7 +576,9 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
   for (const [empId, weekMap] of byEmployeeAndWeek) {
     const acc = monthAccum.get(empId)!;
     for (const [weekStart, total] of weekMap) {
-      const weekDate = new Date(weekStart);
+      const t = localDayStartMs(weekStart);
+      if (Number.isNaN(t)) continue;
+      const weekDate = new Date(t);
       const monthKey = `${weekDate.getFullYear()}-${String(weekDate.getMonth() + 1).padStart(2, '0')}`;
       if (!acc.has(monthKey)) acc.set(monthKey, { sum: 0, count: 0 });
       const cur = acc.get(monthKey)!;
@@ -520,7 +594,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
   }
 
   const handleScroll = useCallback(() => {
-    if (sync && scrollContainerRef.current) {
+    if (sync?.axisHydrated && scrollContainerRef.current) {
       sync.reportScroll('people', scrollContainerRef.current.scrollLeft);
     }
   }, [sync]);
@@ -530,7 +604,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
     if (loading || !scrollContainerRef.current || employees.length === 0 || hasScrolledToTodayRef.current) return;
     const el = scrollContainerRef.current;
     let offset: number;
-    if (sync?.scrollToTodayOffset != null) {
+    if (sync?.axisHydrated && sync.scrollToTodayOffset != null) {
       offset = sync.scrollToTodayOffset;
     } else {
       const today = new Date();
@@ -542,7 +616,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
     }
     el.scrollLeft = offset;
     hasScrolledToTodayRef.current = true;
-  }, [loading, employees.length, sync, startDate, endDate, gridWidth]);
+  }, [loading, employees.length, sync, sync?.axisHydrated, startDate, endDate, gridWidth]);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -662,7 +736,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
           }}
           className="overflow-x-auto"
           onScroll={handleScroll}
-          onWheel={sync?.onWheelZoom}
+          onWheel={sync?.axisHydrated ? sync.onWheelZoom : undefined}
         >
           <div className="min-w-max">
             {/* Header row */}
@@ -758,15 +832,14 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
               const showTagGroupHeader = empIdx === 0 || prevTag !== thisTag;
               const weekTotals = byEmployeeAndWeek.get(emp.id) ?? new Map();
               const isExpanded = expandedId === emp.id;
-              const rawSegments = buildAllocationSegments(
-                planningAllocations,
-                emp.id,
+              const segments = buildAllocationSegmentsFromBreakdown(
+                byEmployeeAndWeekBreakdown.get(emp.id) ?? new Map(),
+                weeks,
                 ventureMap,
-                phaseMap,
-                startDate.getTime(),
-                endDate.getTime()
+                emp.id,
+                planningAllocations,
+                phaseMap
               );
-              const segments = mergeAllocationSegments(rawSegments);
 
               return (
                 <div key={emp.id} className="last:[&>*:last-child]:border-b-0">

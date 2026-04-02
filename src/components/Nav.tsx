@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { signOut, useSession } from 'next-auth/react';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Command Center', icon: 'layout' },
@@ -31,8 +32,10 @@ function NavIcon({ type }: { type: 'layout' | 'users' }) {
 
 export function Nav() {
   const pathname = usePathname();
+  const { data: session, status } = useSession();
 
   return (
+    <div className="flex items-center gap-3">
     <nav className="flex gap-1">
       {NAV_ITEMS.map(({ href, label, icon }) => {
         const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href);
@@ -54,5 +57,20 @@ export function Nav() {
         );
       })}
     </nav>
+    {status === 'authenticated' && session?.user && (
+      <div className="flex items-center gap-2 border-l border-zinc-200 pl-3">
+        <span className="hidden max-w-[10rem] truncate text-xs text-zinc-500 sm:inline" title={session.user.email ?? undefined}>
+          {session.user.email ?? session.user.name}
+        </span>
+        <button
+          type="button"
+          onClick={() => signOut({ callbackUrl: '/login' })}
+          className="rounded-md px-2 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
+        >
+          Sign out
+        </button>
+      </div>
+    )}
+    </div>
   );
 }

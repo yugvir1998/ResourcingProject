@@ -202,8 +202,9 @@ export function TimelineView(props?: TimelineViewProps) {
   const [zoom] = useState<ZoomLevel>('month');
   const [localZoomScale, setLocalZoomScale] = useState(1);
   const sync = useTimelineSyncOptional();
-  const zoomScale = sync?.zoomScale ?? localZoomScale;
-  const setZoomScale = sync?.setZoomScale ?? setLocalZoomScale;
+  const useSyncedAxis = !!(sync?.axisHydrated);
+  const zoomScale = useSyncedAxis ? sync!.zoomScale : localZoomScale;
+  const setZoomScale = useSyncedAxis ? sync!.setZoomScale : setLocalZoomScale;
   const [selectedVentureId, setSelectedVentureId] = useState<number | null>(null);
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<number>>(new Set());
   const [milestoneModal, setMilestoneModal] = useState<{
@@ -244,6 +245,7 @@ export function TimelineView(props?: TimelineViewProps) {
         toast.show('Failed to hide');
       } else {
         toast.show('Hidden from timeline');
+        onRefresh?.();
         if (prevV) {
           undo?.pushUndo({
             label: 'Hide from timeline',
@@ -264,7 +266,7 @@ export function TimelineView(props?: TimelineViewProps) {
         }
       }
     },
-    [toast, undo, ventures]
+    [toast, undo, ventures, onRefresh]
   );
 
   const applyTimelineTemplate = useCallback(async (ventureId: number) => {
@@ -304,7 +306,8 @@ export function TimelineView(props?: TimelineViewProps) {
         }
         setVentures((prev) => prev.map((v) => (v.id === ventureId ? data : v)));
         toast.show('Project greenlit');
-        fetchData();
+        await fetchData();
+        onRefresh?.();
         if (prevV) {
           undo?.pushUndo({
             label: 'Greenlight project',
@@ -318,6 +321,7 @@ export function TimelineView(props?: TimelineViewProps) {
               const restored = await r.json();
               setVentures((prev) => prev.map((v) => (v.id === ventureId ? restored : v)));
               await fetchData();
+              onRefresh?.();
             },
           });
         }
@@ -325,7 +329,7 @@ export function TimelineView(props?: TimelineViewProps) {
         toast.show(err instanceof Error ? err.message : 'Something went wrong');
       }
     },
-    [toast, undo, ventures]
+    [toast, undo, ventures, onRefresh]
   );
 
   const handleUnhide = useCallback(
@@ -358,7 +362,8 @@ export function TimelineView(props?: TimelineViewProps) {
         );
         setShowHiddenDropdown(false);
         toast.show('Added back to timeline');
-        fetchData();
+        await fetchData();
+        onRefresh?.();
         if (prevV) {
           undo?.pushUndo({
             label: 'Add back to timeline',
@@ -375,6 +380,7 @@ export function TimelineView(props?: TimelineViewProps) {
               const restored = await r.json();
               setVentures((prev) => prev.map((v) => (v.id === ventureId ? restored : v)));
               await fetchData();
+              onRefresh?.();
             },
           });
         }
@@ -384,7 +390,7 @@ export function TimelineView(props?: TimelineViewProps) {
         setUnhidingId(null);
       }
     },
-    [toast, applyTimelineTemplate, undo, ventures]
+    [toast, applyTimelineTemplate, undo, ventures, onRefresh]
   );
 
   const timelineSensors = useSensors(
@@ -415,6 +421,12 @@ export function TimelineView(props?: TimelineViewProps) {
     setMilestones(mData || []);
     setAllocations(aData || []);
     setEmployees(eData || []);
+  };
+
+  /** Refetch timeline data and bump Command Center refresh so People Allocation stays in sync. */
+  const refreshTimelineAndPeople = async () => {
+    await fetchData();
+    onRefresh?.();
   };
 
   useEffect(() => {
@@ -486,9 +498,14 @@ export function TimelineView(props?: TimelineViewProps) {
     [toast, undo, ventures]
   );
 
+  // Include exploration_staging so ventures added as "Plan" before status was fixed to `planned`
+  // still appear here after Hide from timeline (they stayed exploration_staging + timeline_visible false).
   const hiddenVentures = ventures.filter(
     (v) =>
-      (v.status === 'backlog' || v.status === 'active' || v.status === 'planned') &&
+      (v.status === 'backlog' ||
+        v.status === 'active' ||
+        v.status === 'planned' ||
+        v.status === 'exploration_staging') &&
       (v.timeline_visible !== true || v.hidden_from_venture_tracker === true)
   );
 
@@ -626,13 +643,15 @@ export function TimelineView(props?: TimelineViewProps) {
     return timelineVentures.filter((v) => ventureCurrentPhase.get(v.id) === phase);
   };
   const localDateRange = getDateRange(phases, milestones);
-  const startDate = (sync?.startDate) ?? localDateRange.start;
-  const endDate = (sync?.endDate) ?? localDateRange.end;
-  const totalDays = (sync?.totalDays) ?? (Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) || 90);
+  const startDate = useSyncedAxis ? sync!.startDate : localDateRange.start;
+  const endDate = useSyncedAxis ? sync!.endDate : localDateRange.end;
+  const totalDays = useSyncedAxis
+    ? sync!.totalDays
+    : (Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) || 90);
   const baseColumnWidth = getColumnWidth(zoom);
   const baseGridWidth = getGridTotalWidth(zoom, startDate, endDate);
-  const columnWidth = (sync?.columnWidth) ?? baseColumnWidth * zoomScale;
-  const gridTotalWidth = (sync?.gridTotalWidth) ?? baseGridWidth * zoomScale;
+  const columnWidth = useSyncedAxis ? sync!.columnWidth : baseColumnWidth * zoomScale;
+  const gridTotalWidth = useSyncedAxis ? sync!.gridTotalWidth : baseGridWidth * zoomScale;
 
   const ZOOM_SCALE_MIN = 0.5;
   const ZOOM_SCALE_MAX = 2.5;
@@ -648,14 +667,14 @@ export function TimelineView(props?: TimelineViewProps) {
     },
     []
   );
-  const handleWheelZoom = sync?.onWheelZoom ?? localHandleWheelZoom;
+  const handleWheelZoom = useSyncedAxis ? sync!.onWheelZoom : localHandleWheelZoom;
 
   // Snap scroll to today on initial load (use sync context when available)
   useEffect(() => {
     if (loading || !scrollContainerRef.current || timelineVentures.length === 0 || hasScrolledToTodayRef.current) return;
     const el = scrollContainerRef.current;
     let offset: number;
-    if (sync?.scrollToTodayOffset != null) {
+    if (useSyncedAxis && sync?.scrollToTodayOffset != null) {
       offset = sync.scrollToTodayOffset;
     } else {
       const today = new Date();
@@ -667,10 +686,10 @@ export function TimelineView(props?: TimelineViewProps) {
     }
     el.scrollLeft = offset;
     hasScrolledToTodayRef.current = true;
-  }, [loading, timelineVentures.length, startDate, endDate, gridTotalWidth, sync]);
+  }, [loading, timelineVentures.length, startDate, endDate, gridTotalWidth, sync, useSyncedAxis]);
 
   const handleScroll = useCallback(() => {
-    if (sync && scrollContainerRef.current) {
+    if (sync?.axisHydrated && scrollContainerRef.current) {
       sync.reportScroll('timeline', scrollContainerRef.current.scrollLeft);
     }
   }, [sync]);
@@ -693,6 +712,7 @@ export function TimelineView(props?: TimelineViewProps) {
     if (res.ok) {
       const updated = await res.json();
       setAllocations((a) => a.map((x) => (x.id === id ? updated : x)));
+      onRefresh?.();
       if (prev) {
         const inv: { fte_percentage?: number; phase_id?: number | null } = {};
         if (updates.fte_percentage !== undefined) inv.fte_percentage = prev.fte_percentage;
@@ -725,8 +745,10 @@ export function TimelineView(props?: TimelineViewProps) {
     const res = await fetch(`/api/allocations/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       await fetchData();
+      onRefresh?.();
       return;
     }
+    onRefresh?.();
     undo?.pushUndo({
       label: 'Remove allocation',
       undo: async () => {
@@ -745,6 +767,7 @@ export function TimelineView(props?: TimelineViewProps) {
         if (!r.ok) throw new Error('Undo failed');
         const created = await r.json();
         setAllocations((a) => [...a, created]);
+        onRefresh?.();
       },
     });
   };
@@ -1614,7 +1637,7 @@ export function TimelineView(props?: TimelineViewProps) {
                         onPauseResume={handlePauseResume}
                         onAllocationUpdate={updateAllocation}
                         onAllocationRemove={removeAllocation}
-                        onRefresh={fetchData}
+                        onRefresh={refreshTimelineAndPeople}
                         onOpenPanel={() => setSelectedVentureId(v.id)}
                         onPhaseRowClick={handlePhaseRowClick}
                         onMilestoneClick={(m) => setMilestoneModal({ open: true, mode: 'edit', ventureId: v.id, milestone: m })}
@@ -1701,6 +1724,7 @@ export function TimelineView(props?: TimelineViewProps) {
                       : prev
                   );
                   toast.show('Saved');
+                  onRefresh?.();
                 }}
                 onPhaseCapacityHiddenChange={togglePhaseCapacityHidden}
                 onRemove={async () => {
@@ -1739,6 +1763,7 @@ export function TimelineView(props?: TimelineViewProps) {
                   }
                   setAllocations((prev) => prev.filter((a) => a.venture_id !== id));
                   toast.show('Removed from timeline');
+                  onRefresh?.();
                   undo?.pushUndo({
                     label: 'Remove from timeline',
                     undo: async () => {
@@ -1771,6 +1796,7 @@ export function TimelineView(props?: TimelineViewProps) {
                         setAllocations((prev) => [...prev, created]);
                       }
                       await fetchData();
+                      onRefresh?.();
                     },
                   });
                 }}
@@ -1786,6 +1812,7 @@ export function TimelineView(props?: TimelineViewProps) {
                     setSelectedVentureId(null);
                     onVentureDeleted?.();
                     toast.show('Project deleted');
+                    onRefresh?.();
                     undo?.pushUndo({
                       label: 'Delete project',
                       undo: async () => {
@@ -1796,6 +1823,7 @@ export function TimelineView(props?: TimelineViewProps) {
                         });
                         if (!r.ok) throw new Error('Undo failed');
                         await fetchData();
+                        onRefresh?.();
                       },
                     });
                   } else {
@@ -1820,6 +1848,7 @@ export function TimelineView(props?: TimelineViewProps) {
                     setSelectedVentureId(null);
                     onVentureDeleted?.(); // triggers page refresh so Support Ventures section updates
                     toast.show('Tagged as Support');
+                    onRefresh?.();
                     undo?.pushUndo({
                       label: 'Move to Support',
                       undo: async () => {
@@ -1833,6 +1862,7 @@ export function TimelineView(props?: TimelineViewProps) {
                         setVentures((prev) => prev.map((v) => (v.id === id ? restored : v)));
                         onVentureDeleted?.();
                         await fetchData();
+                        onRefresh?.();
                       },
                     });
                   } else {
@@ -1926,7 +1956,7 @@ export function TimelineView(props?: TimelineViewProps) {
               return [...filtered, addedVenture];
             });
           }
-          await fetchData();
+          await refreshTimelineAndPeople();
           if (addedVenture) {
             setVentures((prev) => {
               const hasIt = prev.some((v) => v.id === addedVenture.id);

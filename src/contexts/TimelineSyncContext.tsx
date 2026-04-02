@@ -18,7 +18,7 @@ import {
   type ZoomLevel,
 } from '@/components/timeline/TimeAxis';
 import { useCurrentDate } from '@/hooks/useCurrentDate';
-import { isAllocationIncludedInCapacity } from '@/lib/phaseCapacity';
+import { localDayEndMs, localDayStartMs } from '@/lib/localDateParse';
 import type { VenturePhase } from '@/types';
 
 const SIDEBAR_WIDTH = 192;
@@ -29,6 +29,8 @@ type TimelineSyncContextValue = {
   zoom: ZoomLevel;
   zoomScale: number;
   setZoomScale: (v: number | ((prev: number) => number)) => void;
+  /** False until the first venture-phases / milestones / allocations fetch completes (avoids empty-range axis). */
+  axisHydrated: boolean;
   startDate: Date;
   endDate: Date;
   weeks: Date[];
@@ -55,6 +57,7 @@ export function TimelineSyncProvider({
 }) {
   const [zoomScale, setZoomScale] = useState(1);
   const [hasScrolledToToday, setHasScrolledToToday] = useState(false);
+  const [axisHydrated, setAxisHydrated] = useState(false);
   const [syncData, setSyncData] = useState<{
     phases: VenturePhase[];
     milestones: { target_date: string }[];
@@ -66,6 +69,7 @@ export function TimelineSyncProvider({
   const rafIdRef = useRef<number | null>(null);
 
   useEffect(() => {
+    setAxisHydrated(false);
     Promise.all([
       fetch('/api/venture-phases').then((r) => r.json()),
       fetch('/api/hiring-milestones').then((r) => r.json()),
@@ -76,7 +80,9 @@ export function TimelineSyncProvider({
         milestones: milestones || [],
         allocations: allocations || [],
       });
-    });
+      setAxisHydrated(true);
+    })
+      .catch(() => setAxisHydrated(true));
   }, [refreshTrigger]);
 
   const { phases, milestones, allocations } = syncData;
@@ -87,15 +93,14 @@ export function TimelineSyncProvider({
     const phaseMap = new Map(phases.map((p) => [p.id, p]));
     const dates: number[] = [];
     for (const a of allocations) {
-      if (!isAllocationIncludedInCapacity(a.phase_id, phaseMap)) continue;
       const phase = a.phase_id ? phaseMap.get(a.phase_id) : null;
       if (phase?.start_date && phase?.end_date) {
-        const ps = new Date(phase.start_date).getTime();
-        const pe = new Date(phase.end_date).getTime();
+        const ps = localDayStartMs(phase.start_date);
+        const pe = localDayEndMs(phase.end_date);
         if (!Number.isNaN(ps)) dates.push(ps);
         if (!Number.isNaN(pe)) dates.push(pe);
       } else {
-        const t = new Date(a.week_start).getTime();
+        const t = localDayStartMs(String(a.week_start));
         if (!Number.isNaN(t)) dates.push(t);
       }
     }
@@ -172,6 +177,7 @@ export function TimelineSyncProvider({
       zoom,
       zoomScale,
       setZoomScale,
+      axisHydrated,
       startDate,
       endDate,
       weeks,
@@ -187,6 +193,7 @@ export function TimelineSyncProvider({
       registerPeopleRef,
     }),
     [
+      axisHydrated,
       zoomScale,
       startDate,
       endDate,

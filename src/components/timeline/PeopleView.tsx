@@ -2,8 +2,9 @@
 
 import type { Venture, VenturePhase, Allocation, Employee } from '@/types';
 import { isPhaseIncludedInCapacity } from '@/lib/phaseCapacity';
+import { ventureContributesToPeopleCapacity } from '@/lib/peopleCapacityVisibility';
 
-type AllocationItem = { venture: Venture; phase: VenturePhase; fte: number };
+type AllocationItem = { venture: Venture; phase: VenturePhase | null; fte: number };
 
 // Rose-tinted palette for venture segments (capacity bars)
 const VENTURE_SEGMENT_COLORS = [
@@ -58,9 +59,15 @@ export function PeopleView({
   const endTime = endDate.getTime();
 
   for (const a of allocations) {
-    const phase = a.phase_id ? phaseMap.get(a.phase_id) : null;
     const venture = ventureMap.get(a.venture_id);
-    if (!phase || !venture || !isPhaseIncludedInCapacity(phase)) continue;
+    if (!venture || !ventureContributesToPeopleCapacity(venture)) continue;
+    let phase: VenturePhase | null = null;
+    if (a.phase_id != null) {
+      const p = phaseMap.get(a.phase_id);
+      if (!p || !isPhaseIncludedInCapacity(p)) continue;
+      phase = p;
+    }
+
 
     const weekStart = a.week_start;
     const weekTime = new Date(weekStart).getTime();

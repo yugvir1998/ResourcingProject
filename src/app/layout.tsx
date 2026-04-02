@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
+import { AuthSessionProvider } from "@/components/AuthSessionProvider";
 import { ToastProvider } from "@/components/Toast";
 
 const geistSans = Geist({
@@ -28,6 +29,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <AuthSessionProvider>
         <ToastProvider>
         <div className="min-h-screen bg-zinc-50">
           <header className="border-b border-zinc-200 bg-white/95 shadow-sm backdrop-blur-sm">
@@ -41,6 +43,7 @@ export default function RootLayout({
           <main className="mx-auto max-w-7xl px-4 py-4">{children}</main>
         </div>
         </ToastProvider>
+        </AuthSessionProvider>
       </body>
     </html>
   );
