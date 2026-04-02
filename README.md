@@ -61,6 +61,7 @@ Data added in the dashboard is stored in Supabase. You can also add or edit data
    - `SUPABASE_SERVICE_ROLE_KEY` – from Supabase Settings → API → service_role key
    - `SUPABASE_DB_URL` – from Supabase Settings → Database → Connection string (URI)
    - `OPENAI_API_KEY` – for Impact Analysis (optional; omit if not using)
+   - Google sign-in: `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`; optional `ALLOWED_EMAIL_DOMAINS` (e.g. `gitwit.com`). Register redirect URI `https://<your-service>.onrender.com/api/auth/callback/google` in Google Cloud. The app uses Render’s `RENDER_EXTERNAL_URL` for OAuth so you do not need `AUTH_URL` unless you use a **custom domain** (then set `AUTH_URL` to that `https://` origin).
 
 5. **Deploy** – Render will build and deploy. Your app will be live at `https://<your-service>.onrender.com`.
 

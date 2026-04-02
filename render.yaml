@@ -22,3 +22,5 @@ services:
       # - SUPABASE_SERVICE_ROLE_KEY
       # - SUPABASE_DB_URL
       # - OPENAI_API_KEY
+      # - AUTH_SECRET, AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET (Google OAuth; RENDER_EXTERNAL_URL is auto-set for redirect_uri)
+      # - Optional: ALLOWED_EMAIL_DOMAINS=gitwit.com  |  Custom domain: AUTH_URL=https://your-domain.com

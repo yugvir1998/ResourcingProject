@@ -2,6 +2,16 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { NextResponse } from "next/server";
 
+// Render (and similar proxies) often expose internal host:port to the app; Google OAuth
+// needs the public origin for redirect_uri. Render sets RENDER_EXTERNAL_URL automatically.
+if (
+  process.env.RENDER_EXTERNAL_URL?.trim() &&
+  !process.env.AUTH_URL?.trim() &&
+  !process.env.NEXTAUTH_URL?.trim()
+) {
+  process.env.AUTH_URL = process.env.RENDER_EXTERNAL_URL.replace(/\/$/, "");
+}
+
 /**
  * If `ALLOWED_EMAIL_DOMAINS` is set (comma-separated), only those email
  * domains may sign in after Google OAuth. If unset or empty, any Google
