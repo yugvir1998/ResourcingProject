@@ -32,7 +32,7 @@ export function PhasePeopleCards({
   allocations,
   employees,
   ventureId,
-  ventureStatus,
+  ventureStatus: _ventureStatus,
   leftOffsetPct = 0,
   widthPct,
   onUpdate,
@@ -155,7 +155,6 @@ export function PhasePeopleCards({
           employees={availableEmployees}
           ventureId={ventureId}
           phaseId={phase.id}
-          ventureStatus={ventureStatus}
           onAdded={onRefresh}
         />
       )}
@@ -178,13 +177,11 @@ function AddPersonDropdown({
   employees,
   ventureId,
   phaseId,
-  ventureStatus,
   onAdded,
 }: {
   employees: { id: number; name: string }[];
   ventureId: number;
   phaseId: number;
-  ventureStatus?: string;
   onAdded?: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -218,7 +215,8 @@ function AddPersonDropdown({
           employee_id: employeeId,
           venture_id: ventureId,
           phase_id: phaseId,
-          fte_percentage: ventureStatus === 'exploration_staging' ? 5 : 50,
+          context: 'planned',
+          fte_percentage: 50,
           week_start: weekStart,
         }),
       });

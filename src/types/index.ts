@@ -15,6 +15,7 @@ export type ExplorationPhase =
 export type Spectrum = 'venture_leader' | 'engineer' | 'studio_function' | 'other';
 export type PhaseType = 'explore' | 'shape' | 'build' | 'spin_out' | 'support' | 'pause';
 export type RoleType = 'ceo' | 'founding_engineer' | 'other';
+export type AssignmentContext = 'pre_exploration' | 'planned';
 
 export interface Venture {
   id: number;
@@ -113,6 +114,7 @@ export interface Allocation {
   employee_id: number;
   venture_id: number;
   phase_id?: number | null;
+  context: AssignmentContext;
   fte_percentage: number;
   week_start: string;
   notes: string | null;

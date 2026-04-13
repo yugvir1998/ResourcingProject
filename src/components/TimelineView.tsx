@@ -403,7 +403,7 @@ export function TimelineView(props?: TimelineViewProps) {
       fetch('/api/venture-phases'),
       fetch('/api/phase-activities'),
       fetch('/api/hiring-milestones'),
-      fetch('/api/allocations'),
+      fetch('/api/allocations?context=planned'),
       fetch('/api/employees'),
     ]);
     const [vData, pData, paData, mData, aData, eData] = await Promise.all([
@@ -416,11 +416,11 @@ export function TimelineView(props?: TimelineViewProps) {
     ]);
     const list = Array.isArray(vData) ? vData : [];
     setVentures(list);
-    setPhases(pData || []);
-    setPhaseActivities(paData || []);
-    setMilestones(mData || []);
-    setAllocations(aData || []);
-    setEmployees(eData || []);
+    setPhases(Array.isArray(pData) ? pData : []);
+    setPhaseActivities(Array.isArray(paData) ? paData : []);
+    setMilestones(Array.isArray(mData) ? mData : []);
+    setAllocations(Array.isArray(aData) ? aData : []);
+    setEmployees(Array.isArray(eData) ? eData : []);
   };
 
   /** Refetch timeline data and bump Command Center refresh so People Allocation stays in sync. */
@@ -759,6 +759,7 @@ export function TimelineView(props?: TimelineViewProps) {
             employee_id: prev.employee_id,
             venture_id: prev.venture_id,
             phase_id: prev.phase_id ?? undefined,
+            context: prev.context,
             fte_percentage: prev.fte_percentage,
             week_start: prev.week_start,
             notes: prev.notes,
@@ -1748,7 +1749,7 @@ export function TimelineView(props?: TimelineViewProps) {
                     toast.show('Failed to remove from timeline');
                     return;
                   }
-                  const delRes = await fetch(`/api/allocations?ventureId=${id}`, { method: 'DELETE' });
+                  const delRes = await fetch(`/api/allocations?ventureId=${id}&context=planned`, { method: 'DELETE' });
                   if (!delRes.ok) {
                     await fetch(`/api/ventures/${id}`, {
                       method: 'PATCH',
@@ -1786,6 +1787,7 @@ export function TimelineView(props?: TimelineViewProps) {
                             employee_id: a.employee_id,
                             venture_id: a.venture_id,
                             phase_id: a.phase_id ?? undefined,
+                            context: a.context,
                             fte_percentage: a.fte_percentage,
                             week_start: a.week_start,
                             notes: a.notes,

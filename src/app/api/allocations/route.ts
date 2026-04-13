@@ -6,6 +6,7 @@ export async function GET(request: Request) {
   const ventureId = searchParams.get('ventureId');
   const employeeId = searchParams.get('employeeId');
   const phaseId = searchParams.get('phaseId');
+  const context = searchParams.get('context');
 
   let query = getSupabase()
     .from('allocations')
@@ -20,6 +21,12 @@ export async function GET(request: Request) {
   }
   if (phaseId) {
     query = query.eq('phase_id', parseInt(phaseId, 10));
+  }
+  if (context) {
+    if (context !== 'pre_exploration' && context !== 'planned') {
+      return NextResponse.json({ error: 'Invalid context' }, { status: 400 });
+    }
+    query = query.eq('context', context);
   }
   if (!ventureId && !employeeId) {
     query = query.order('venture_id', { ascending: true });
@@ -37,7 +44,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { employee_id, venture_id, phase_id, fte_percentage, week_start, notes } = body;
+    const { employee_id, venture_id, phase_id, fte_percentage, week_start, notes, context } = body;
 
     if (!employee_id || !venture_id || fte_percentage == null || !week_start) {
       return NextResponse.json(
@@ -46,7 +53,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Pre-exploration (exploration_staging) ventures: enforce 5% per project
     let effectiveFte = Math.min(100, Math.max(0, Number(fte_percentage))) || 0;
     const { data: ventureRow } = await getSupabase()
       .from('ventures')
@@ -57,7 +63,15 @@ export async function POST(request: Request) {
     if (!ventureRow) {
       return NextResponse.json({ error: 'Venture not found' }, { status: 404 });
     }
-    if (ventureRow.status === 'exploration_staging') {
+
+    let effectiveContext = context as string | undefined;
+    if (!effectiveContext) {
+      effectiveContext = ventureRow.status === 'exploration_staging' ? 'pre_exploration' : 'planned';
+    }
+    if (effectiveContext !== 'pre_exploration' && effectiveContext !== 'planned') {
+      return NextResponse.json({ error: 'Invalid context' }, { status: 400 });
+    }
+    if (effectiveContext === 'pre_exploration') {
       effectiveFte = 5;
     }
 
@@ -67,6 +81,7 @@ export async function POST(request: Request) {
       fte_percentage: effectiveFte,
       week_start,
       notes: notes || null,
+      context: effectiveContext,
     };
     if (phase_id != null) insertPayload.phase_id = phase_id;
 
@@ -90,6 +105,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
   const ventureId = searchParams.get('ventureId');
+  const context = searchParams.get('context');
   if (!ventureId) {
     return NextResponse.json({ error: 'ventureId query parameter required' }, { status: 400 });
   }
@@ -97,7 +113,14 @@ export async function DELETE(request: Request) {
   if (Number.isNaN(vid)) {
     return NextResponse.json({ error: 'Invalid ventureId' }, { status: 400 });
   }
-  const { error } = await getSupabase().from('allocations').delete().eq('venture_id', vid);
+  let deleteQuery = getSupabase().from('allocations').delete().eq('venture_id', vid);
+  if (context) {
+    if (context !== 'pre_exploration' && context !== 'planned') {
+      return NextResponse.json({ error: 'Invalid context' }, { status: 400 });
+    }
+    deleteQuery = deleteQuery.eq('context', context);
+  }
+  const { error } = await deleteQuery;
   if (error) {
     console.error(error);
     return NextResponse.json({ error: error.message || 'Failed to delete allocations' }, { status: 500 });

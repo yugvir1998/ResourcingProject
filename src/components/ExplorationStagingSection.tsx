@@ -42,6 +42,7 @@ interface VentureAllocation {
   id: number;
   employee_id: number;
   venture_id: number;
+  context: 'pre_exploration' | 'planned';
 }
 
 interface ExplorationStagingCardProps {
@@ -363,7 +364,7 @@ interface ExplorationStagingSectionProps {
 
 export function ExplorationStagingSection({ refreshTrigger, onRefresh }: ExplorationStagingSectionProps) {
   const [ventures, setVentures] = useState<Venture[]>([]);
-  const [allocations, setAllocations] = useState<{ id: number; employee_id: number; venture_id: number }[]>([]);
+  const [allocations, setAllocations] = useState<{ id: number; employee_id: number; venture_id: number; context: 'pre_exploration' | 'planned' }[]>([]);
   const [employees, setEmployees] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -374,7 +375,7 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
     (async () => {
       const [vRes, aRes, eRes] = await Promise.all([
         fetch('/api/ventures'),
-        fetch('/api/allocations'),
+        fetch('/api/allocations?context=pre_exploration'),
         fetch('/api/employees'),
       ]);
       const [vData, aData, eData] = await Promise.all([vRes.json(), aRes.json(), eRes.json()]);
@@ -456,7 +457,7 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
       .filter((e): e is { id: number; name: string } => e != null);
   };
 
-  const getVentureAllocations = (ventureId: number): { id: number; employee_id: number; venture_id: number }[] =>
+  const getVentureAllocations = (ventureId: number): { id: number; employee_id: number; venture_id: number; context: 'pre_exploration' | 'planned' }[] =>
     allocations.filter((a) => a.venture_id === ventureId);
 
   const updateTeam = async (
@@ -485,6 +486,7 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
             body: JSON.stringify({
               venture_id: ventureId,
               employee_id: empId,
+              context: 'pre_exploration',
               fte_percentage: 5,
               week_start: weekStart,
             }),
@@ -495,7 +497,7 @@ export function ExplorationStagingSection({ refreshTrigger, onRefresh }: Explora
           }
         }
       }
-      const aRes = await fetch('/api/allocations');
+      const aRes = await fetch('/api/allocations?context=pre_exploration');
       const aData = await aRes.json();
       setAllocations(Array.isArray(aData) ? aData : []);
       onRefresh?.();
@@ -674,6 +676,7 @@ function AddExplorationVentureForm({
               body: JSON.stringify({
                 venture_id: venture.id,
                 employee_id: empId,
+                context: 'pre_exploration',
                 fte_percentage: 5,
                 week_start: weekStart,
               }),

@@ -27,6 +27,7 @@ interface VentureAllocation {
   venture_id: number;
   week_start: string;
   fte_percentage: number;
+  context: 'pre_exploration' | 'planned';
 }
 
 interface SupportVentureCardProps {
@@ -405,7 +406,7 @@ interface Milestone {
 export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVenturesSectionProps) {
   const [ventures, setVentures] = useState<Venture[]>([]);
   const [allocations, setAllocations] = useState<
-    { id: number; employee_id: number; venture_id: number; week_start: string; fte_percentage: number; phase_id?: number | null }[]
+    { id: number; employee_id: number; venture_id: number; week_start: string; fte_percentage: number; phase_id?: number | null; context: 'pre_exploration' | 'planned' }[]
   >([]);
   const [employees, setEmployees] = useState<{ id: number; name: string }[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
@@ -418,7 +419,7 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
     (async () => {
       const [vRes, aRes, eRes, mRes] = await Promise.all([
         fetch('/api/ventures'),
-        fetch('/api/allocations'),
+        fetch('/api/allocations?context=planned'),
         fetch('/api/employees'),
         fetch('/api/hiring-milestones'),
       ]);
@@ -551,6 +552,7 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
             body: JSON.stringify({
               venture_id: ventureId,
               employee_id: empId,
+              context: 'planned',
               fte_percentage: fte,
               week_start: weekStart,
             }),
@@ -561,7 +563,7 @@ export function SupportVenturesSection({ refreshTrigger, onRefresh }: SupportVen
           }
         }
       }
-      const aRes = await fetch('/api/allocations');
+      const aRes = await fetch('/api/allocations?context=planned');
       const aData = await aRes.json();
       setAllocations(Array.isArray(aData) ? aData : []);
       onRefresh?.();
