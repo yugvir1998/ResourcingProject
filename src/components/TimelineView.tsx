@@ -1657,13 +1657,16 @@ export function TimelineView(props?: TimelineViewProps) {
             {(() => {
               const today = new Date();
               today.setHours(0, 0, 0, 0);
-              const startTime = startDate.getTime();
-              const endTime = endDate.getTime();
-              const totalMs = endTime - startTime;
-              if (totalMs <= 0) return null;
-              const todayOffsetPct = Math.max(0, Math.min(1, (today.getTime() - startTime) / totalMs));
+              const months = getMonthsBetween(startDate, endDate);
+              if (months.length === 0) return null;
+              const todayMonthIdx = months.findIndex(
+                (m) => m.getFullYear() === today.getFullYear() && m.getMonth() === today.getMonth()
+              );
+              if (todayMonthIdx < 0) return null;
+              const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+              const dayProgress = Math.max(0, Math.min(1, (today.getDate() - 1) / Math.max(1, daysInMonth)));
               const sidebarWidth = 192;
-              const leftPx = sidebarWidth + todayOffsetPct * gridTotalWidth;
+              const leftPx = sidebarWidth + (todayMonthIdx * columnWidth) + (dayProgress * columnWidth);
               return (
                 <div
                   className="pointer-events-none absolute left-0 top-0 z-10 flex min-w-0 flex-col"

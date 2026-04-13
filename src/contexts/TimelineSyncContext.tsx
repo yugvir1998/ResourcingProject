@@ -14,6 +14,7 @@ import {
   getDateRange,
   getColumnWidth,
   getGridTotalWidth,
+  getMonthsBetween,
   getWeeksBetween,
   type ZoomLevel,
 } from '@/components/timeline/TimeAxis';
@@ -73,7 +74,7 @@ export function TimelineSyncProvider({
     Promise.all([
       fetch('/api/venture-phases').then((r) => r.json()),
       fetch('/api/hiring-milestones').then((r) => r.json()),
-      fetch('/api/allocations').then((r) => r.json()),
+      fetch('/api/allocations?context=planned').then((r) => r.json()),
     ]).then(([phases, milestones, allocations]) => {
       setSyncData({
         phases: phases || [],
@@ -122,13 +123,20 @@ export function TimelineSyncProvider({
   const { date: today } = useCurrentDate();
 
   const scrollToTodayOffset = useMemo(() => {
-    const startTime = startDate.getTime();
-    const endTime = endDate.getTime();
-    const totalMs = endTime - startTime;
-    if (totalMs <= 0) return SIDEBAR_WIDTH;
-    const todayOffsetPct = Math.max(0, Math.min(1, (today.getTime() - startTime) / totalMs));
-    return SIDEBAR_WIDTH + todayOffsetPct * gridTotalWidth;
-  }, [startDate, endDate, gridTotalWidth, today]);
+    const months = getMonthsBetween(startDate, endDate);
+    if (months.length === 0) return SIDEBAR_WIDTH;
+    const todayMonthIdx = months.findIndex(
+      (m) => m.getFullYear() === today.getFullYear() && m.getMonth() === today.getMonth()
+    );
+    if (todayMonthIdx < 0) {
+      if (today.getTime() < startDate.getTime()) return SIDEBAR_WIDTH;
+      return SIDEBAR_WIDTH + gridTotalWidth;
+    }
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    const dayProgress = Math.max(0, Math.min(1, (today.getDate() - 1) / Math.max(1, daysInMonth)));
+    const leftPx = todayMonthIdx * columnWidth + dayProgress * columnWidth;
+    return SIDEBAR_WIDTH + Math.max(0, Math.min(gridTotalWidth, leftPx));
+  }, [startDate, endDate, gridTotalWidth, columnWidth, today]);
 
   const registerTimelineRef = useCallback((el: HTMLDivElement | null) => {
     timelineScrollRef.current = el;
