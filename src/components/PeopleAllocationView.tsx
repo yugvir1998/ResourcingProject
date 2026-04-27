@@ -83,6 +83,30 @@ function getCellColor(pct: number): string {
   return 'bg-red-100 text-red-900 border-red-200';
 }
 
+function roundToNearest10(pct: number): number {
+  return Math.round(pct / 10) * 10;
+}
+
+function fmtPct(pct: number): string {
+  return `${Math.round(pct * 10) / 10}%`;
+}
+
+type ContextBreakdown = {
+  planned: number;
+  support: number;
+  preExploration: number;
+};
+
+function breakdownTooltip(label: string, rounded: number, exact: number, ctx: ContextBreakdown): string {
+  return [
+    `${label}: ${rounded}% (rounded)`,
+    `Exact: ${fmtPct(exact)}`,
+    `Planned: ${fmtPct(ctx.planned)}`,
+    `Support: ${fmtPct(ctx.support)}`,
+    `Pre-Exploration: ${fmtPct(ctx.preExploration)}`,
+  ].join('\n');
+}
+
 function dateToOffset(dateStr: string, startDate: Date, totalDays: number): number {
   const startTime = startDate.getTime();
   const dateTime = new Date(dateStr).getTime();
@@ -568,13 +592,19 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
 
   // Build per-employee per-month average (for month/quarter view)
   const byEmployeeAndMonth = new Map<number, Map<string, number>>();
+  const byEmployeeAndMonthContext = new Map<number, Map<string, ContextBreakdown>>();
   const monthAccum = new Map<number, Map<string, { sum: number; count: number }>>();
+  const monthContextAccum = new Map<number, Map<string, { planned: number; support: number; preExploration: number; count: number }>>();
   for (const emp of employees) {
     byEmployeeAndMonth.set(emp.id, new Map());
+    byEmployeeAndMonthContext.set(emp.id, new Map());
     monthAccum.set(emp.id, new Map());
+    monthContextAccum.set(emp.id, new Map());
   }
   for (const [empId, weekMap] of byEmployeeAndWeek) {
     const acc = monthAccum.get(empId)!;
+    const ctxAcc = monthContextAccum.get(empId)!;
+    const weekBreakdown = byEmployeeAndWeekBreakdown.get(empId) ?? new Map();
     for (const [weekStart, total] of weekMap) {
       const t = localDayStartMs(weekStart);
       if (Number.isNaN(t)) continue;
@@ -584,12 +614,48 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
       const cur = acc.get(monthKey)!;
       cur.sum += total;
       cur.count += 1;
+
+      if (!ctxAcc.has(monthKey)) {
+        ctxAcc.set(monthKey, { planned: 0, support: 0, preExploration: 0, count: 0 });
+      }
+      const ctxCur = ctxAcc.get(monthKey)!;
+      let weekPlanned = 0;
+      let weekSupport = 0;
+      let weekPreExploration = 0;
+      const detail = weekBreakdown.get(weekStart) ?? [];
+      for (const row of detail) {
+        if (row.venture.status === 'support') {
+          weekSupport += row.fte;
+        } else if (row.venture.status === 'exploration_staging' && row.phase == null) {
+          weekPreExploration += row.fte;
+        } else {
+          weekPlanned += row.fte;
+        }
+      }
+      ctxCur.planned += weekPlanned;
+      ctxCur.support += weekSupport;
+      ctxCur.preExploration += weekPreExploration;
+      ctxCur.count += 1;
     }
   }
   for (const [empId, acc] of monthAccum) {
     const monthMap = byEmployeeAndMonth.get(empId)!;
     for (const [monthKey, { sum, count }] of acc) {
       monthMap.set(monthKey, count > 0 ? Math.round((sum / count) * 10) / 10 : 0);
+    }
+  }
+  for (const [empId, ctxAcc] of monthContextAccum) {
+    const monthCtxMap = byEmployeeAndMonthContext.get(empId)!;
+    for (const [monthKey, { planned, support, preExploration, count }] of ctxAcc) {
+      if (count <= 0) {
+        monthCtxMap.set(monthKey, { planned: 0, support: 0, preExploration: 0 });
+        continue;
+      }
+      monthCtxMap.set(monthKey, {
+        planned: Math.round((planned / count) * 10) / 10,
+        support: Math.round((support / count) * 10) / 10,
+        preExploration: Math.round((preExploration / count) * 10) / 10,
+      });
     }
   }
 
@@ -886,10 +952,35 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
                           .filter((m) => `${m.getFullYear()}-Q${Math.floor(m.getMonth() / 3) + 1}` === quarterKey)
                           .map((m) => `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`);
                         const monthMap = byEmployeeAndMonth.get(emp.id) ?? new Map();
-                        const vals = monthKeysInQ.map((k) => monthMap.get(k) ?? 0).filter((v) => v > 0);
-                        const total =
-                          vals.length > 0 ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : 0;
-                        const colorClass = getCellColor(total);
+                        const monthCtxMap = byEmployeeAndMonthContext.get(emp.id) ?? new Map();
+                        const vals = monthKeysInQ.map((k) => ({ key: k, value: monthMap.get(k) ?? 0 })).filter((v) => v.value > 0);
+                        const totalExact =
+                          vals.length > 0
+                            ? Math.round((vals.reduce((acc, cur) => acc + cur.value, 0) / vals.length) * 10) / 10
+                            : 0;
+                        const total = roundToNearest10(totalExact);
+                        const colorClass = getCellColor(totalExact);
+                        const quarterCtx =
+                          vals.length > 0
+                            ? vals.reduce(
+                                (acc, cur) => {
+                                  const m = monthCtxMap.get(cur.key) ?? { planned: 0, support: 0, preExploration: 0 };
+                                  acc.planned += m.planned;
+                                  acc.support += m.support;
+                                  acc.preExploration += m.preExploration;
+                                  return acc;
+                                },
+                                { planned: 0, support: 0, preExploration: 0 }
+                              )
+                            : { planned: 0, support: 0, preExploration: 0 };
+                        const quarterCtxAvg =
+                          vals.length > 0
+                            ? {
+                                planned: Math.round((quarterCtx.planned / vals.length) * 10) / 10,
+                                support: Math.round((quarterCtx.support / vals.length) * 10) / 10,
+                                preExploration: Math.round((quarterCtx.preExploration / vals.length) * 10) / 10,
+                              }
+                            : { planned: 0, support: 0, preExploration: 0 };
                         return (
                           <div
                             key={quarterKey}
@@ -898,6 +989,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
                           >
                             <span
                               className={`inline-flex min-w-[2.5rem] justify-center rounded border px-2 py-0.5 text-xs font-medium ${colorClass}`}
+                              title={breakdownTooltip(`${quarterKey} allocation`, total, totalExact, quarterCtxAvg)}
                             >
                               {total}%
                             </span>
@@ -907,10 +999,14 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
                     {displayLevel === 'months' &&
                       months.map((m) => {
                         const monthKey = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`;
-                        const total = byEmployeeAndMonth.get(emp.id)?.get(monthKey) ?? 0;
+                        const totalExact = byEmployeeAndMonth.get(emp.id)?.get(monthKey) ?? 0;
+                        const total = roundToNearest10(totalExact);
                         const isTodayMonth =
                           today.getMonth() === m.getMonth() && today.getFullYear() === m.getFullYear();
-                        const colorClass = getCellColor(total);
+                        const colorClass = getCellColor(totalExact);
+                        const monthCtx =
+                          byEmployeeAndMonthContext.get(emp.id)?.get(monthKey) ??
+                          ({ planned: 0, support: 0, preExploration: 0 } as ContextBreakdown);
                         return (
                           <div
                             key={monthKey}
@@ -919,6 +1015,7 @@ export function PeopleAllocationView({ refreshTrigger }: { refreshTrigger?: numb
                           >
                             <span
                               className={`inline-flex min-w-[2.5rem] justify-center rounded border px-2 py-0.5 text-xs font-medium ${colorClass}`}
+                              title={breakdownTooltip(`${monthKey} allocation`, total, totalExact, monthCtx)}
                             >
                               {total}%
                             </span>
